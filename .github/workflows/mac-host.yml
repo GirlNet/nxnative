@@ -1,0 +1,34 @@
+# Compile the Mac host (dm/host/dmhost) for every game profile on a macOS runner.
+# The host builds from repository sources alone (game.tsv, dmsh_chain.h, third_party libvpx/libdeflate/stb_vorbis):
+# no game files and no keys are needed, so nothing player-owned ever reaches the runner.
+name: mac-host
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'dm/host/**'
+      - 'dm/gfx/**'
+      - 'dm/games/**'
+      - 'dm/ios/Sources/**'
+      - 'dm/third_party/**'
+      - '.github/workflows/mac-host.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build dmhost for every game profile
+        run: |
+          set -e
+          # libvpx is compiled once by the first make and reused by the rest (gen/vpx/libvpx.a)
+          for g in $(python3 dm/games/game.py list | awk '{print $1}'); do
+            echo "=== $g ==="
+            make -C dm/host GAME="$g"
+            cp dm/host/dmhost "dmhost-$g"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dmhost
+          path: dmhost-*
+          retention-days: 14
