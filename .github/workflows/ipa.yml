@@ -40,6 +40,10 @@ jobs:
             zstd -d -c payload.tar.zst | tar -xf - -C w
             mv w/verify/pkg w/shader/pkg
             rm -rf payload.tar.zst w/verify
+            # the runner's Metal / spirv-cross differ from the committed tool lock: re-key the chain to the runner's tools
+            # (runner-local only — the committed dmsh_chain.lock and every profile's chain version stay untouched)
+            DM_GAME="$GAME" python3 dm/gfx/tools/dmsh_chain.py --update-lock
+            DM_GAME="$GAME" python3 dm/gfx/tools/dmsh_chain.py --header
             DM_GAME="$GAME" XLATE=dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate IOSOUT=w/shader/ios \
               python3 dm/gfx/tools/dmsh_build.py w/shader/pkg w/shader/cache
             OUT="$OUT_NAME"; [ -n "$OUT" ] || OUT="$(python3 dm/tools/nacp.py w/data/v0/control.nacp).ipa"
