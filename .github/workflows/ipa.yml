@@ -1,0 +1,65 @@
+# Build one game's unsigned IPA on a macOS runner, from a payload prepared locally after extraction:
+# the payload root holds data/v0 (RomFS + control.nacp + icon.jpg), build/patched_v0 (rewritten modules) and verify/pkg (split shaders).
+# Game files never enter the repository: the payload comes from a one-off link given at dispatch time, and the IPA leaves as a one-day artifact.
+name: ipa
+on:
+  workflow_dispatch:
+    inputs:
+      payload_url:
+        description: 'payload tar.zst URL'
+        required: true
+      game:
+        description: 'game profile (base game title ID)'
+        required: true
+        default: '0100D9F01D474000'
+      out_name:
+        description: 'IPA file name (default: the game name from control.nacp)'
+        required: false
+        default: ''
+
+jobs:
+  ipa:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          brew install xcodegen zstd spirv-cross
+          brew install --cask dotnet-sdk
+          python3 -m pip install lz4 capstone fonttools
+      - name: Build the IPA
+        run: |
+          build() {
+            set -e
+            curl -fL --retry 3 -o payload.tar.zst "$PAYLOAD_URL"
+            mkdir w w/shader
+            zstd -d -c payload.tar.zst | tar -xf - -C w
+            mv w/verify/pkg w/shader/pkg
+            rm -rf payload.tar.zst w/verify
+            DM_GAME="$GAME" XLATE=dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate IOSOUT=w/shader/ios \
+              python3 dm/gfx/tools/dmsh_build.py w/shader/pkg w/shader/cache
+            OUT="$OUT_NAME"; [ -n "$OUT" ] || OUT="$(python3 dm/tools/nacp.py w/data/v0/control.nacp).ipa"
+            GAME="$GAME" W=w PATCHED=w/build/patched_v0 ROMFS=w/data/v0/RomFS MSL_IOS=w/shader/ios AOC='' FONT_PY=python3 \
+              bash dm/ios/tools/build_ipa.sh "$OUT"
+          }
+          # on failure, echo the first error lines as annotations: they are readable without sign-in, the full log is not
+          set +e
+          build 2>&1 | tee build.log
+          st=${PIPESTATUS[0]}
+          set -e
+          if [ "$st" -ne 0 ]; then
+            grep -E 'error:|Error [0-9]|Traceback|fatal|【红】' build.log | head -n 5 | while IFS= read -r l; do echo "::error::$l"; done
+            exit "$st"
+          fi
+        env:
+          PAYLOAD_URL: ${{ inputs.payload_url }}
+          GAME: ${{ inputs.game }}
+          OUT_NAME: ${{ inputs.out_name }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ipa
+          path: |
+            *.ipa
+            build.log
+          retention-days: 1
