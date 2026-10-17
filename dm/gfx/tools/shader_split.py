@@ -263,7 +263,7 @@ def main():
     files, results, common = [], [], None
     for i, (romfs, mainnso) in enumerate(zip(romfs_v, main_v)):
         tag = os.path.basename(os.path.dirname(os.path.abspath(romfs))) if i else ''
-        files += sorted((os.path.join(dp, f), (tag + '/' if tag else '') + os.path.relpath(os.path.join(dp, f), romfs)) for dp, _, fs in os.walk(romfs) for f in fs)
+        files += sorted((os.path.join(dp, f), (tag + '/' if tag else '') + os.path.relpath(os.path.join(dp, f), romfs).replace(os.sep, '/')) for dp, _, fs in os.walk(romfs) for f in fs)   # Windows 的 relpath 用反斜杠：统一成 /，否则来源列与分组规则（/Shader/=…）跨平台不一致 | Windows relpath uses backslashes: normalize to / or the source column and the group rules differ across platforms
         img = nso_image(mainnso)
         if not i:
             import unityfs

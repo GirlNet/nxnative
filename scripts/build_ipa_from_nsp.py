@@ -56,7 +56,7 @@ def run(cmd, log, env=None, cwd=None, quiet=False):
     p = subprocess.Popen(cmd, env=env, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace', bufsize=1)
     if quiet: threading.Thread(target=beat, daemon=True).start()
     try:
-        with open(log, 'w') as f:
+        with open(log, 'w', encoding='utf-8', errors='replace') as f:   # Windows 的默认编码是 GBK，吃不下输出里的 U+FFFD | Windows' default GBK cannot encode the U+FFFD in the output
             for line in p.stdout:
                 f.write(line); tail.append(line); n[0] += 1
                 if not quiet: print(line, end='', flush=True)
@@ -84,10 +84,12 @@ def rmtree(p):
 def build_nx_extract(repo, work, logs, env):
     """Build nx_extract into <work>/tools/nx_extract/. It is built in a temporary folder and copied over: with an apostrophe in the output path (e.g. "Bowser's Fury") MSBuild's conditions break,
     LibHac.dll and the executable are not copied, and the build still reports success"""
-    nx = work / 'tools/nx_extract/nx_extract'
+    exe = 'nx_extract.exe' if os.name == 'nt' else 'nx_extract'   # Windows 只出 .exe | on Windows only the .exe is produced
+    nx = work / 'tools/nx_extract' / exe
+    dotnet = shutil.which('dotnet', path=env['PATH']) or 'dotnet'   # Windows 上 subprocess 不按 env 的 PATH 找程序，钉死绝对路径 | pin the absolute path: on Windows subprocess does not resolve the program against env's PATH
     with tempfile.TemporaryDirectory(prefix='nx_extract_') as t:
-        run(['dotnet', 'build', repo / 'dm/tools/nx_extract', '-c', 'Release', '-o', t, '-v', 'quiet', '-nologo'], logs / 'nx_extract_build.log', env=env)
-        if not (Path(t) / 'nx_extract').exists(): raise BuildError(f'nx_extract 编译后没有可执行文件（见 {logs / "nx_extract_build.log"}）| nx_extract built without an executable (see {logs / "nx_extract_build.log"})')
+        run([dotnet, 'build', repo / 'dm/tools/nx_extract', '-c', 'Release', '-o', t, '-v', 'quiet', '-nologo'], logs / 'nx_extract_build.log', env=env)
+        if not (Path(t) / exe).exists(): raise BuildError(f'nx_extract 编译后没有可执行文件（见 {logs / "nx_extract_build.log"}）| nx_extract built without an executable (see {logs / "nx_extract_build.log"})')
         rmtree(nx.parent); shutil.copytree(t, nx.parent)
     return nx
 
