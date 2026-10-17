@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       payload_url:
-        description: 'payload tar.zst URL'
+        description: 'payload bin URL (holds payload.part01..04, about 650 MB each)'
         required: true
       game:
         description: 'game profile (base game title ID)'
@@ -31,7 +31,10 @@ jobs:
         run: |
           build() {
             set -e
-            curl -fL --retry 3 -o payload.tar.zst "$PAYLOAD_URL"
+            # the payload travels in four ~650 MB parts: home uploads get reset on longer connections
+            for i in 01 02 03 04; do curl -fL --retry 3 -o "payload.part$i" "$PAYLOAD_URL/payload.part$i"; done
+            cat payload.part01 payload.part02 payload.part03 payload.part04 > payload.tar.zst
+            rm -f payload.part0?
             mkdir w w/shader
             zstd -d -c payload.tar.zst | tar -xf - -C w
             mv w/verify/pkg w/shader/pkg
