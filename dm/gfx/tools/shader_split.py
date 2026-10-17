@@ -158,8 +158,18 @@ def _pool_init(common, trees):
     global COMMON, TREES
     COMMON, TREES = common, trees
 
-def unity_program(code, where):
+def unity_program(code, where, stage=None):
     """Unity's Switch program code → [(stage, control, code)]"""
+    # before 2019.3 (Cuphead, Unity 2017.4): a 0x10 header {?, ?, control size, code size} + control section + code area;
+    # a subprogram carries a single stage, which is not in the code but taken from the Shader's m_ParsedForm (see unity_stages)
+    if len(code) >= 0x14 and code[0x10:0x14] == CTL_MAGIC:
+        nctl, ncode = struct.unpack_from('<2i', code, 8); a = 0x10; st = stage or 'vs'
+        end = a + nctl + ncode
+        ctl, cd = code[a:a + nctl], code[a + nctl:end]
+        why = check(where, st, ctl, cd) if end <= len(code) else '块越界'
+        if why: red(f'{where} {st}：{why}')
+        if end != len(code): red(f'{where}：程序代码 {len(code):#x} 字节，控制段 + 代码区只到 {end:#x}')
+        return [(st, ctl, cd)]
     h = struct.unpack_from('<24i', code, 0); out = []; end = 0x60
     for i, st in enumerate(NV_STAGES):
         off, nctl, ncode = h[6 + i], h[12 + i], h[18 + i]
@@ -171,6 +181,16 @@ def unity_program(code, where):
     if end != len(code): red(f'{where}：程序代码 {len(code):#x} 字节，各阶段块只到 {end:#x}')
     return out
 
+def unity_stages(o):
+    """Shader's m_ParsedForm → {blob index: stage}; only the older layout needs it (the newer one carries the stages in the program code header)"""
+    m = {}
+    for sub in (o.get('m_ParsedForm') or {}).get('m_SubShaders', []):
+        for p in sub.get('m_Passes', []):
+            for field, st in (('progVertex', 'vs'), ('progFragment', 'ps'), ('progGeometry', 'gs'), ('progHull', 'hs'), ('progDomain', 'ds')):
+                for s in (p.get(field) or {}).get('m_SubPrograms', []):
+                    m.setdefault(s.get('m_BlobIndex'), st)
+    return m
+
 def unity_shaders(d, label, out, trees):
     """Shaders in a UnityFS bundle or serialized file → out; raises NoTree when no type tree is available"""
     import unityfs
@@ -180,10 +200,11 @@ def unity_shaders(d, label, out, trees):
         if not unityfs.is_serialized(x): continue
         for cid, pid, o in unityfs.serialized_objects(x, COMMON, {unityfs.CLASS_SHADER}, trees):
             name = o['m_ParsedForm']['m_Name'] if 'm_ParsedForm' in o else o.get('m_Name', '?')
+            sm = unity_stages(o)
             for plat, k, sp in unityfs.shader_programs(o):
                 where = f'{label}{":" + node if node else ""}#{name}#var{plat}.{k}'
                 code = unityfs.subprogram(sp)[4]
-                out.extend((where, st, ctl, cd) for st, ctl, cd in unity_program(code, where))
+                out.extend((where, st, ctl, cd) for st, ctl, cd in unity_program(code, where, sm.get(k)))
 
 def scan_blob(d, label, out):
     if d[:4] == b'Yaz0': d = yaz0(d)
