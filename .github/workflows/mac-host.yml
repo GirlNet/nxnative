@@ -15,20 +15,37 @@ on:
 
 jobs:
   build:
-    runs-on: macos-15
+    # macos-26: the host's Metal 4 path (MTL4* in dm/gfx/nvn, dm/gfx/tex) needs the macOS 26 SDK; macos-15's Xcode 16.4 does not have it
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - name: Build dmhost for every game profile
         run: |
+          build() {
+            set -e
+            # libvpx is compiled once by the first make and reused by the rest (gen/vpx/libvpx.a)
+            for g in $(python3 dm/games/game.py list | awk '{print $1}'); do
+              echo "=== $g ==="
+              make -C dm/host GAME="$g"
+              cp dm/host/dmhost "dmhost-$g"
+            done
+          }
+          # on failure, echo the first error lines as annotations: they are readable without sign-in, the full log is not
+          set +e
+          build 2>&1 | tee build.log
+          st=${PIPESTATUS[0]}
           set -e
-          # libvpx is compiled once by the first make and reused by the rest (gen/vpx/libvpx.a)
-          for g in $(python3 dm/games/game.py list | awk '{print $1}'); do
-            echo "=== $g ==="
-            make -C dm/host GAME="$g"
-            cp dm/host/dmhost "dmhost-$g"
-          done
+          if [ "$st" -ne 0 ]; then
+            grep -E 'error:|Error [0-9]|No rule to make|Traceback|fatal error' build.log | head -n 5 | while IFS= read -r l; do
+              echo "::error::$l"
+            done
+            exit "$st"
+          fi
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: dmhost
-          path: dmhost-*
+          path: |
+            dmhost-*
+            build.log
           retention-days: 14
