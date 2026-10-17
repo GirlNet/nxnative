@@ -1,0 +1,55 @@
+# Game profile of Rhythm Heaven Groove (Switch, base game v0 = 1.0.0). In survey / early bring-up
+# Format: see dm/games/README.md
+# Nintendo first-party rhythm game (own engine, SDK 21.4.0, NVN); modules main + sdk.
+# RomFS: sound/sm *.cwv (2209 raw streams, 2.22 GB), mesg/<region> *.msbt (MsgStdBn), graph/* *.spr sprites + *.tex (zstd), wavmark *.wmb, mesg/Font *.bfttf.zs, one BNSH: /shader/shader_NX.bnsh (118 KB)
+# Survey: main imports nn::ro only for nn::ro::ProtectRelro (RELRO hardening helper, not NRO loading); full nn::audio renderer surface (in-process, like Mario); 536 nvn* name strings (Mario: 534)
+
+# ---- Identity ----
+# The game name is not kept here: the NSP script takes it from the NSP's control data (NACP)
+title_id	0100D9F01D474000
+# The value svcGetInfo(ProgramId) reports to the game (DM_PROGRAM_ID overrides it at run time)
+program_id	0100D9F01D474000
+
+# ---- App ----
+# Game name: only a label for profile listings and the Mac window title; the iOS app name is the game name in the base NSP, and the bundle ID comes from the base game title ID (build_ipa.sh / NSP script)
+name	Rhythm Heaven Groove
+ipa	RhythmHeavenGroove.ipa
+app_category	public.app-category.music-games
+
+# ---- Versions ----
+# build <version> <display version> <module>=<build ID>...: the NSP script accepts only these builds (fixed addresses do not hold on other builds); the host reports the display version by main's build ID
+build	v0	1.0.0	main=03ff4a3bec96bde3a2e37ce3aa4caa0c	sdk=cff2680fe74cb7d8d13b525730d1a7fd
+# Version packed into the IPA by default
+package	v0
+# The shader tables are the union of these versions (base game first): all of them are needed to build
+shader_versions	v0
+
+# ---- Files ----
+# Code modules rewritten and loaded (load order; rtld is replaced by the host)
+modules	main sdk
+# A path that must exist in the RomFS (tells whether the game files are in the right place)
+romfs_marker	shader/shader_NX.bnsh
+# Extensions zip stores without compressing (.tex and .zs are zstd, .cwv is 2.2 GB of raw audio that deflate cannot help)
+zip_store	.zs:.tex:.cwv:.metallib
+
+# ---- Memory (hle_svc.c; the reasons for the partition are in its comments) ----
+# The NPDM declares no system resource (META +0x14 = 0): the game uses SetHeapSize. Starts from Breath of the Wild's / 13 Sentinels' partition (4 GB block = 256 MB in front + 256 MB alias region + 256 MB stack region + 3.25 GB heap region) until measured
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+
+# ---- NVN driver constant segments (dmsh_build.py at packaging, nvn_mtl.m filled at run time; measured over all shaders) ----
+# Mario's values until measured over all shaders
+nvn_tex_base	0x20
+nvn_tex_slots	32
+nvn_samp_base	0x568
+nvn_img_base	0x120
+nvn_img_slots	8
+nvn_ssbo_bases	vs=0x110 ps=0x510 cs=0x310
+
+# ---- Shader split (shader_split.py) ----
+# Source groups: a path containing the first part goes to the second group (first match wins; shaders embedded in main always go to main, no match goes to other)
+shader_groups	/shader/=shader
+# Description of the shader source in the map table header
+shader_note	Rhythm Heaven Groove shaders
