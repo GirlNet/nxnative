@@ -242,8 +242,10 @@ NVN(nvnTextureInitialize, NVNboolean, NVNtexture *t, const NVNtextureBuilder *b)
     // (deko3d) layout: DM_NVN_TILE_H=0..4 forces the GOB block height for textures without a packaged layout.
     if (!s->has_layout) {
         const char *th = getenv("DM_NVN_TILE_H");
-        if (th && *th) { int v = atoi(th); if (v >= 0 && v <= 4) { o->d.pkg_block_h = (uint32_t)v + 1;
-            static int n; if (n++ < 12) LOG("[nvn] 强制块高 %ux%u 格式 %#x → tileH=%d", o->d.width, o->d.height, o->d.format, v); } }
+        if (th && *th) { unsigned w = 0, h = 0; int v = -1;
+            if (sscanf(th, "%ux%u:%d", &w, &h, &v) == 3) { if (v >= 0 && v <= 4 && o->d.width == w && o->d.height == h) o->d.pkg_block_h = (uint32_t)v + 1; }
+            else if (sscanf(th, "%d", &v) == 1 && v >= 0 && v <= 4) o->d.pkg_block_h = (uint32_t)v + 1;
+            if (o->d.pkg_block_h) { static int n; if (n++ < 12) LOG("[nvn] 强制块高 %ux%u 格式 %#x → tileH=%d", o->d.width, o->d.height, o->d.format, o->d.pkg_block_h - 1); } }
     }
     nvn_tex_layout(&o->d, &o->L);
     o->mem = s->pool && s->pool->mem ? s->pool->mem + s->off : NULL;
