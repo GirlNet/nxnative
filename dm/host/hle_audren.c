@@ -10,6 +10,9 @@
 //      then finds the DeviceSink command in the command list (a no-op for the CPU processor) and clamps its input mix buffers (int32 holding 16-bit range) to int16 stereo for AudioOut (hle_audio.c).
 // Command list format (SDK 16): header +0x04 command count, +0x08 mix buffer address, +0x10 buffer count, +0x14 samples per frame, +0x18 sample rate, commands from +0x20;
 //   each command +0x00 magic 0xcafebabe, +0x04 enabled, +0x05 command ID (DeviceSink = 0x13), +0x06 size; DeviceSink +0x128 upsampler buffer, +0x130 input count, +0x134 input indices (s16).
+// SDK 21 keeps the header and the 8-byte command header, but changes the command header fields: +0x00 flags (bit 0 = command, otherwise a data node), +0x01 command ID,
+//   +0x02 int16 size, +0x04 offset; the payload starts at +0x08. CommandListProcessor::ProcessCommands / DispatchCommand of Rhythm Heaven's sdk load the ID from +1
+//   and advance by the signed 16-bit size at +2. The sink is still the 0x148-byte command, so its payload offsets are unchanged.
 #include "hle.h"
 #include <stdatomic.h>
 #include <time.h>
@@ -106,10 +109,12 @@ static int capture(const uint8_t *cl, int16_t *dst) {
     static int logged, hist_logged;
     if (!hist_logged && ncmd > 4) {   // first full command list: command ID histogram, and the sink ID check
         hist_logged = 1;
-        int hist[64] = {0}, cand = -1, ncand = 0; const uint8_t *q = cl + 0x20; char line[512]; size_t o = 0;
-        for (uint32_t i = 0; i < ncmd && *(const uint32_t *)q == 0xcafebabeu && *(const int16_t *)(q + 6) > 0; i++) {
-            int16_t sz = *(const int16_t *)(q + 6); hist[q[5] & 63]++;
-            if (sz == 0x148 && *(const uint32_t *)(q + 0x130) - 1 < 6) { cand = q[5]; ncand++; }
+        int hist[64] = {0}, cand = -1, ncand = 0; const uint8_t *q = cl + 0x20; char line[512]; line[0] = 0; size_t o = 0;
+        for (uint32_t i = 0; i < ncmd; i++) {
+            int16_t sz = *(const int16_t *)(q + 2);
+            if (sz <= 0) break;
+            if (q[0] & 1) hist[q[1] & 63]++;
+            if (sz == 0x148 && *(const uint32_t *)(q + 0x130) - 1 < 6) { cand = q[1]; ncand++; }
             q += sz;
         }
         for (int k = 0; k < 64; k++) if (hist[k]) o += snprintf(line + o, sizeof line - o, " %d×%d", k, hist[k]);
@@ -119,9 +124,9 @@ static int capture(const uint8_t *cl, int16_t *dst) {
     }
     const uint8_t *c = cl + 0x20;
     for (uint32_t i = 0; i < ncmd; i++) {
-        uint32_t magic = *(const uint32_t *)c; int16_t size = *(const int16_t *)(c + 6);
-        if (magic != 0xcafebabeu || size <= 0) { if (!logged++) LOG("【红】audren：命令表第 %u 条格式不对（魔数 %#x 大小 %d）", i, magic, size); return 0; }
-        if (c[5] == g_sink_id && c[4]) {
+        int16_t size = *(const int16_t *)(c + 2);
+        if (size <= 0) { if (!logged++) LOG("【红】audren：命令表第 %u 条格式不对（标志 %#x 号 %u 大小 %d）", i, c[0], c[1], size); return 0; }
+        if ((c[0] & 1) && c[1] == g_sink_id && size >= 0x138) {
             uint32_t nin = *(const uint32_t *)(c + 0x130); const int16_t *in = (const int16_t *)(c + 0x134);
             const int32_t *up = *(const int32_t *const *)(c + 0x128);
             if (!logged++) LOG("audren：DeviceSink 输入 %u 个（%d %d …）采样率 %u 每帧 %u 混音缓冲 %p 上采样缓冲 %p", nin, nin ? in[0] : -1, nin > 1 ? in[1] : -1, rate, samples, (void *)mix, (void *)up);
