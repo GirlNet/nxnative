@@ -465,6 +465,7 @@ void *objc_autoreleasePoolPush(void); void objc_autoreleasePoolPop(void *);
 static void *g_sub_pool;
 static int g_ruler_truth = -1, g_ruler_pending;
 static int tbdr_on(void);
+static void tex_evict_unused(uint64_t frame);
 
 static uint64_t g_sub_serial;   // Submission index (used by the parallel precompile's 'predict only once per submission')
 void mtl_sub_begin(void) {
@@ -472,6 +473,7 @@ void mtl_sub_begin(void) {
     if (tbdr_on() == 0 && g_ruler_pending) { g_ruler_truth = 0; g_ruler_pending = 0; MLOG("DM_NVN_RULER：切到被测模式"); }
     defer_drain();
     defer_reset();
+    tex_evict_unused(atomic_load(&g_cur_frame));
     warm_claim();
     if (g_cb) MDIE("提交重入");
     g_sub_thread = pthread_self(); atomic_store(&g_sub_thread_set, 1);
@@ -648,6 +650,16 @@ static uint64_t g_up_total_ns;   // Cumulative upload time (same source as the p
 #define GRING 1024
 static struct { _Atomic uint64_t frame, ns, t0, t1; _Atomic int pending; } g_gpu[GRING];   // t0 / t1: the frame's earliest GPUStart / latest GPUEnd (mach absolute time, ns)
 static _Atomic uint64_t g_cur_frame;
+// Last frame each texture serial was resolved. Used by the memory-pressure eviction below: a packaged texture that has not been used for a while
+// can be dropped from the serial / alias caches and re-uploaded from its pool memory if the game asks for it again.
+#define SER_USE_N 8192
+static _Atomic uint64_t g_ser_use_ser[SER_USE_N], g_ser_use_frame[SER_USE_N];
+static inline void ser_use_touch(uint64_t s) {
+    if (!s) return;
+    uint32_t i = (uint32_t)(s & (SER_USE_N - 1));
+    atomic_store_explicit(&g_ser_use_ser[i], s, memory_order_relaxed);
+    atomic_store_explicit(&g_ser_use_frame[i], atomic_load_explicit(&g_cur_frame, memory_order_relaxed), memory_order_relaxed);
+}
 // ---------- Same-process alternating measurement (DM_NVN_UB, off by default: without the environment variable the code below only adds one 'is it enabled' check) ----------
 // On a hot real device the system keeps adjusting power / frequency, and segment comparison (segments A and B each run for a minute) cannot resolve differences of <10%; within the same run, toggle by phase in turn and take differences of adjacent phase pairs, so the drift cancels.
 // DM_NVN_UB="name=item,item;name=item", one phase every DM_NVN_UB_N frames (default 180, minimum 60): even phases = baseline (nothing changed), odd phases take one category in turn. Each item of a category:
@@ -1398,6 +1410,7 @@ static id<MTLTexture> tex_mtl_(const tex_t *ct) {
     tex_t *t = (tex_t *)ct;
     if (!t || !t->serial) return nil;
     if (t->magic != MAGIC('T', 'E', 'X', 0)) { RED_ONCE(70, "贴图对象已失效（magic %#x，首例 ser=%llu）：不建 MTLTexture", t->magic, (unsigned long long)t->serial); return nil; }
+    ser_use_touch(t->serial);
     int linear = tex_is_linear(t);
     if (!linear && guestup_on() && !t->has_layout && !tex_cpu_written(t->serial)) guest_tex_data(t);
     int packaged = !linear && (t->has_layout || tex_cpu_written(t->serial)) && t->mem;
@@ -1477,6 +1490,48 @@ static id<MTLTexture> tex_mtl_(const tex_t *ct) {
     pthread_mutex_unlock(&g_smu);
     serial_put(t->serial, mt);
     return mt;
+}
+// Memory-pressure eviction: packaged textures are re-uploadable from their pool storage, so the serial / alias caches do not have to keep every
+// level's textures alive until the app is killed. Drop packaged textures that have not been resolved for DM_NVN_EVICT_AGE frames when the GPU
+// allocation passes DM_NVN_EVICT_MB; a later use transparently uploads the texture again.
+static void tex_evict_unused(uint64_t frame) {
+    static int cap_mb = -1, age = -1;
+    if (cap_mb < 0) { const char *e = getenv("DM_NVN_EVICT_MB"); cap_mb = e && *e ? atoi(e) : 2200; }
+    if (age < 0) { const char *e = getenv("DM_NVN_EVICT_AGE"); age = e && *e ? atoi(e) : 600; }
+    if (cap_mb <= 0 || age <= 0 || frame < (uint64_t)age || g_dev.currentAllocatedSize < ((uint64_t)cap_mb << 20)) return;
+    enum { MAXC = 512 };
+    uint64_t sers[MAXC]; void *texs[MAXC]; int n = 0, m = 0;
+    pthread_mutex_lock(&g_smu);
+    for (uint32_t i = 0; i < g_by_serial.cap && n < MAXC; i++) {
+        void *v = g_by_serial.vals[i]; if (!v) continue;
+        id o = (__bridge id)v;
+        if (![o isKindOfClass:[NvPkg class]]) continue;
+        uint64_t s; memcpy(&s, g_by_serial.keys + (size_t)i * 8, 8);
+        sers[n] = s; texs[n] = (__bridge void *)((NvPkg *)o)->tex; n++;
+    }
+    pthread_mutex_unlock(&g_smu);
+    for (int i = 0; i < n; i++) {
+        uint32_t k = (uint32_t)(sers[i] & (SER_USE_N - 1));
+        uint64_t last = atomic_load_explicit(&g_ser_use_ser[k], memory_order_relaxed) == sers[i] ? atomic_load_explicit(&g_ser_use_frame[k], memory_order_relaxed) : 0;
+        if (!last || last + (uint64_t)age < frame) { sers[m] = sers[i]; texs[m] = texs[i]; m++; }
+    }
+    if (!m) return;
+    alias_key aks[MAXC]; int na = 0;
+    pthread_mutex_lock(&g_smu);
+    for (uint32_t i = 0; i < g_alias.cap && na < MAXC; i++) {
+        void *v = g_alias.vals[i]; if (!v) continue;
+        for (int j = 0; j < m; j++) if (v == texs[j]) { memcpy(&aks[na], g_alias.keys + (size_t)i * sizeof(alias_key), sizeof(alias_key)); na++; break; }
+    }
+    for (int i = 0; i < na; i++) {
+        void *old = nvn_hm_del(&g_alias, &aks[i]);
+        if (old) { if (g_alias_set) CFSetRemoveValue(g_alias_set, old); defer_obj_release((__bridge id)old); }
+    }
+    pthread_mutex_unlock(&g_smu);
+    uint64_t before = g_dev.currentAllocatedSize;
+    for (int i = 0; i < m; i++) serial_del(sers[i]);
+    uint64_t after = g_dev.currentAllocatedSize;
+    MLOG("内存压力：淘汰 %d 张旧预排布贴图（上限 %d MB、%d 帧未用；GPU %llu → %llu MB）", m, cap_mb, age,
+         (unsigned long long)(before >> 20), (unsigned long long)(after >> 20));
 }
 // Memory readout line (always on, low frequency, capped): resident memory, GPU allocated, deferred-release queue, residency set object count, registered memory pools / peak / tracking table capacity, cumulative texture re-uploads.
 // Purpose: pin down "crashes with no log". The system gives no notice before killing a process for memory, so only readouts left beforehand can show which number kept climbing.
