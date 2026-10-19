@@ -200,6 +200,12 @@ HLE_FORCE("_ZN2nn2vi20GetDisplayVsyncEventEPNS_2os15SystemEventTypeEPNS0_7Displa
     pthread_t th; if (pthread_create(&th, NULL, vsync_thread, ev)) die("垂直同步线程起不来"); pthread_detach(th);
     LOG("vi::GetDisplayVsyncEvent：%p 由宿主 60 Hz 触发", ev); return RES_OK;
 }
+// The SDK's version calls vi::GetService(), which the host never creates (the iOS front end owns the window), then dereferences the null service.
+// Rhythm Heaven asks for the default panel at boot; report a plain panel and success.
+HLE_FORCE("_ZN2nn2vi32GetDefaultDisplayPanelIdentifierEPNS0_15PanelIdentifierE", "vi 默认显示面板：宿主窗口按 0 报", Result, h_vi_Panel, void *out) {
+    if (out) *(uint32_t *)out = 0;
+    return RES_OK;
+}
 
 // ---------- diag ----------
 // The text after LogMetaData (NN_LOG) goes straight into the host log; an abort prints the call site and exits with a failure
