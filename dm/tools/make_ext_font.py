@@ -102,6 +102,16 @@ def build(out, letter_font):
             contour(pen, circle(cx, CY, R)); contour(pen, circle(cx, CY, R - 70), hole=True); contour(pen, circle(cx, CY, 300))
             if t: L.knock(pen, t, cx, CY, 300)
         return d
+    def gamepad():
+        # Rhythm Heaven uses U+E127 for "the person holding the controller" (stage_teatime / stage_tono2)
+        def d(pen, cx):
+            cy = 340
+            contour(pen, rrect(cx - 360, cy - 180, cx + 360, cy + 180, 120))
+            contour(pen, circle(cx - 300, cy - 80, 130)); contour(pen, circle(cx + 300, cy - 80, 130))
+            contour(pen, cross(cx - 170, cy + 20, 78, 42), hole=True)
+            for dx, dy in ((-58, 20), (58, 20), (0, -40), (0, 80)):
+                contour(pen, circle(cx + 170 + dx, cy + dy, 30), hole=True)
+        return d
 
     pen = TTGlyphPen(None); glyphs['.notdef'] = pen.glyph(); adv['.notdef'] = 500
     for i, t in enumerate(['A', 'B', 'X', 'Y']): glyph('btn' + t, [0xE0A0 + i, 0xE0E0 + i], 1000, round_btn(t))
@@ -113,6 +123,7 @@ def build(out, letter_font):
     for c, (nm, deg) in zip(range(0xE090, 0xE098), [('right', 0), ('left', 180), ('up', 90), ('down', 270), ('rightup', 45), ('rightdown', 315), ('leftdown', 225), ('leftup', 135)]):
         glyph('arrow_' + nm, [c], 1000, arrow(deg))
     glyph('stick', [0xE100], 1000, stick(None)); glyph('stickL', [0xE101, 0xE0C1], 1000, stick('L')); glyph('stickR', [0xE102, 0xE0C2], 1000, stick('R'))
+    glyph('gamepad', [0xE127], 1000, gamepad())
 
     order = ['.notdef'] + sorted(n for n in glyphs if n != '.notdef')
     fb = FontBuilder(EM, isTTF=True)
