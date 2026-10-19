@@ -98,6 +98,25 @@ static const size_t k_font_skip = DM_GAME_SHARED_FONT_TTF ? 8 : 0;
 HLE_FORCE("_ZN2nn2pl22GetSharedFontLoadStateENS0_14SharedFontTypeE", "共享字体装载状态：已装（1）", int, h_pl_LoadState, int type) { return font_get(type).p ? 1 : 0; }
 HLE_FORCE("_ZN2nn2pl20GetSharedFontAddressENS0_14SharedFontTypeE", "共享字体地址 → BFTTF 头（档案 shared_font ttf：TTF 本身）", const void *, h_pl_Addr, int type) { const uint8_t *p = font_get(type).p; return p ? p + k_font_skip : NULL; }
 HLE_FORCE("_ZN2nn2pl17GetSharedFontSizeENS0_14SharedFontTypeE", "共享字体大小 → 头 8 字节 + 替身字体文件大小（档案 shared_font ttf：不含头）", size_t, h_pl_Size, int type) { font_t f = font_get(type); return f.p ? f.n - k_font_skip : 0; }
+// Enumerate the shared fonts (Rhythm Heaven calls this at the start of nnMain; the SDK's version asks the pl shared-resource manager, which reaches sm).
+// SharedFontData is 0x18 bytes: type at +0, address at +8, size at +0x10 (seen at sdk+0x40f370 in SDK 21). Serve every type from the host stand-ins,
+// the same address / size convention as GetSharedFontAddress / GetSharedFontSize.
+typedef struct { uint32_t type; uint32_t pad; const void *addr; size_t size; } dm_shared_font_t;
+HLE_FORCE("_ZN2nn2pl13GetSharedFontEPiPNS0_14SharedFontDataEiNS_8settings12LanguageCodeE", "枚举共享字体：SDK 版经 pl 共享资源管理器连 sm；直接用宿主替身字体", Result, h_pl_GetSharedFont, int *count, void *data, int max, uint32_t lang) {
+    (void)lang;
+    dm_shared_font_t *out = data;
+    int total = 0;
+    for (int t = 0; t < 6; t++) if (font_get(t).p) total++;
+    int n = 0;
+    for (int t = 0; t < 6; t++) {
+        font_t f = font_get(t);
+        if (!f.p) continue;
+        if (out && n < max) { out[n].type = (uint32_t)t; out[n].pad = 0; out[n].addr = f.p + k_font_skip; out[n].size = f.n - k_font_skip; }
+        n++;
+    }
+    if (count) *count = total;
+    return RES_OK;
+}
 // Whether running on a Switch 2 (codename Ounce) (returns bool): the host reports false, as a Switch 1. Mario 1.2.1 uses it to decide whether to count add-on content (the upgrade pack) and suggest the Switch 2 Edition
 HLE_FORCE("_ZN2nn2pl16IsRunningOnOunceEv", "是否 Switch 2：否", unsigned, h_pl_IsOunce, void) { return 0; }
 // The Legend of Zelda: Breath of the Wild (SDK 20): asks for the shared fonts to be loaded before querying their state; the host's stand-in fonts are there on demand. VR mode (the Labo VR goggles): the host never enters VR; the query is always false, entering / leaving is a no-op
