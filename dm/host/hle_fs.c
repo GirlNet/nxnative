@@ -460,6 +460,8 @@ HLE_FORCE("_ZN2nn2fs13MountSaveDataEPKcRKNS_7account3UidE", "fsp-srv；存档 �
     { const char *e = getenv("DM_TOUCH_DEFAULTS"); if (d2r && g_dm_mount_seed_hook && (e ? strcmp(e, "0") != 0 : TARGET_OS_IPHONE)) g_dm_mount_seed_hook(dd); }
     return mount_ex(name, dd, 0, 1);
 }
+// Rhythm Heaven asks for the application-scoped read-only mount while checking the save at boot; the host's save is the same transactional directory.
+HLE_FORCE("_ZN2nn2fs21MountSaveDataReadOnlyEPKcNS_13ApplicationIdERKNS_7account3UidE", "fsp-srv；只读存档 → 宿主目录（单用户）", Result, h_fs_MountSaveReadOnlyApp, const char *name, uint64_t app, const void *uid) { (void)app; return h_fs_MountSave(name, uid); }
 void (*g_dm_pre_commit_hook[4])(const char *workdir);   // called before commit (working directory): host side files are checked against the save contents in the working directory before being written ([0] personal stash pages dm_pages.c, [2] pouch dm_pouch.c, [1] chronicle vault dm_vault.c, [3] rift progress dm_rift.c)
 void (*g_dm_save_commit_hook)(const char *commit_dir);   // called after a save commit succeeds (committed directory); the iOS iCloud sync sets it, NULL on the host
 static _Atomic uint64_t g_save_commits;   // number of successful commits (used by the front end when going to background to wait for "the game's current save has been committed")
@@ -831,6 +833,7 @@ HLE_FORCE("_ZN2nn2fs22GetDirectoryEntryCountEPlNS0_15DirectoryHandleE", "fsp-srv
 }
 // Whether save data exists: the host's save directory is created at mount time, so from the game's point of view it always exists (EnsureSaveData always succeeds too)
 HLE_FORCE("_ZN2nn2fs18IsSaveDataExistingERKNS_7account3UidE", "fsp-srv；存档恒已建（返回 bool）", unsigned, h_fs_SaveExists, const void *uid) { (void)uid; return 1; }
+HLE_FORCE("_ZN2nn2fs18IsSaveDataExistingENS_13ApplicationIdERKNS_7account3UidE", "fsp-srv；存档恒已建（返回 bool）", unsigned, h_fs_SaveExistsApp, uint64_t app, const void *uid) { (void)app; (void)uid; return 1; }
 // File system access log and thread priority: on the real device both ask fsp-srv (the access log switch lives in the service); the host has no access log and priority does not affect pread
 HLE_FORCE("_ZN2nn2fs26SetPriorityOnCurrentThreadENS0_8PriorityE", "fsp-srv；文件读优先级，宿主忽略", void, h_fs_SetPrio, int prio) { (void)prio; }
 HLE_FORCE("_ZN2nn2fs6detail18IsEnabledAccessLogEj", "fsp-srv；访问日志恒关（返回 bool）", unsigned, h_fs_AccessLogMask, unsigned mask) { (void)mask; return 0; }
