@@ -465,6 +465,7 @@ void *objc_autoreleasePoolPush(void); void objc_autoreleasePoolPop(void *);
 static void *g_sub_pool;
 static int g_ruler_truth = -1, g_ruler_pending;
 static int tbdr_on(void);
+static _Atomic uint64_t g_cur_frame;
 static void tex_evict_unused(uint64_t frame);
 
 static uint64_t g_sub_serial;   // Submission index (used by the parallel precompile's 'predict only once per submission')
@@ -649,7 +650,6 @@ static uint64_t g_up_total_ns;   // Cumulative upload time (same source as the p
 // ---------- Per-frame GPU time aggregation ----------
 #define GRING 1024
 static struct { _Atomic uint64_t frame, ns, t0, t1; _Atomic int pending; } g_gpu[GRING];   // t0 / t1: the frame's earliest GPUStart / latest GPUEnd (mach absolute time, ns)
-static _Atomic uint64_t g_cur_frame;
 // Last frame each texture serial was resolved. Used by the memory-pressure eviction below: a packaged texture that has not been used for a while
 // can be dropped from the serial / alias caches and re-uploaded from its pool memory if the game asks for it again.
 #define SER_USE_N 8192
