@@ -238,6 +238,13 @@ NVN(nvnTextureInitialize, NVNboolean, NVNtexture *t, const NVNtextureBuilder *b)
     memset(o, 0, sizeof *o);
     o->magic = MAGIC('T', 'E', 'X', 0); o->d = s->d; o->pool = s->pool; o->off = s->off;
     o->has_layout = s->has_layout; memcpy(o->layout, s->layout, 8); o->set_swz = s->set_swz; o->swz = s->swz;
+    // Diagnostic / per-game override for CPU-written textures whose block-linear writer uses a different tile height than the automatic
+    // (deko3d) layout: DM_NVN_TILE_H=0..4 forces the GOB block height for textures without a packaged layout.
+    if (!s->has_layout) {
+        const char *th = getenv("DM_NVN_TILE_H");
+        if (th && *th) { int v = atoi(th); if (v >= 0 && v <= 4) { o->d.pkg_block_h = (uint32_t)v + 1;
+            static int n; if (n++ < 12) LOG("[nvn] 强制块高 %ux%u 格式 %#x → tileH=%d", o->d.width, o->d.height, o->d.format, v); } }
+    }
     nvn_tex_layout(&o->d, &o->L);
     o->mem = s->pool && s->pool->mem ? s->pool->mem + s->off : NULL;
     o->serial = nvn_new_serial();
