@@ -49,6 +49,8 @@ nvn_img_slots	8
 nvn_ssbo_bases	vs=0x110 ps=0x510 cs=0x310
 # Font and background textures are written straight into pool memory without a packaged layout
 guest_tex_upload	on
+# The CPU-written 672x160 UI atlas uses tileH=2 (4 GOBs; the automatic layout picks 3, which tears the digits)
+tile_h	672x160:2
 
 # ---- Shader split (shader_split.py) ----
 # Source groups: a path containing the first part goes to the second group (first match wins; shaders embedded in main always go to main, no match goes to other)

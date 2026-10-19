@@ -242,6 +242,7 @@ NVN(nvnTextureInitialize, NVNboolean, NVNtexture *t, const NVNtextureBuilder *b)
     // (deko3d) layout: DM_NVN_TILE_H=0..4 forces the GOB block height for textures without a packaged layout.
     if (!s->has_layout) {
         const char *th = getenv("DM_NVN_TILE_H");
+        if (!th || !*th) th = DM_GAME_TILE_H;
         if (th && *th) { unsigned w = 0, h = 0; int v = -1;
             if (sscanf(th, "%ux%u:%d", &w, &h, &v) == 3) { if (v >= 0 && v <= 4 && o->d.width == w && o->d.height == h) o->d.pkg_block_h = (uint32_t)v + 1; }
             else if (sscanf(th, "%d", &v) == 1 && v >= 0 && v <= 4) o->d.pkg_block_h = (uint32_t)v + 1;
