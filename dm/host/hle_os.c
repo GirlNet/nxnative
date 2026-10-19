@@ -102,7 +102,9 @@ uint64_t dm_entropy64(void) {
     uint64_t n = atomic_fetch_add(&g_detrng_n, 1) + 1; if (n == 1 || n % 1000 == 0) LOG("DM_DETCLOCK：确定熵第 %llu 次", (unsigned long long)n);
     return z;
 }
-HLE("getentropy", int, g_getentropy, void *p, size_t n) {
+// The SDK's own getentropy (reached by std::random_device in a static initializer) connects to the csrng service through sm; the host runs no such
+// service process, so every reference - the SDK's internal one included - takes this source (Rhythm Heaven aborted in sm::Initialize without it).
+HLE_FORCE("getentropy", "entropy: the SDK's getentropy reaches the csrng service (sm) which the host does not run; serve host randomness", int, g_getentropy, void *p, size_t n) {
     if (!detclock_cfg()) { arc4random_buf(p, n); return 0; }
     for (size_t i = 0; i < n; i += 8) { uint64_t v = dm_entropy64(); memcpy((uint8_t *)p + i, &v, n - i < 8 ? n - i : 8); }
     return 0;
