@@ -63,6 +63,8 @@ xcodebuild -project DmIOS.xcodeproj -scheme DmIOS -configuration Release -destin
 # When Xcode's Locations setting is a custom location, products ignore -derivedDataPath: take the actual path from this build's log
 APP=$DD/Build/Products/Release-iphoneos/DmIOS.app; [ -d "$APP" ] || APP=$(grep -o '/[^ ]*/Release-iphoneos/DmIOS\.app' "$O/build.log" | tail -1)
 [ -n "$APP" ] && [ -d "$APP" ] || die "no built app"; t "app: $APP"
+# Host-only update: keep the executable next to build.log, so a code-only fix can be shipped as a few MB and patched into the existing IPA
+cp "$APP/DmIOS" "$O/DmIOS.bin" || die "copy DmIOS executable"
 
 t "assemble Payload (app + RomFS)"
 rm -rf "$O/Payload" && mkdir -p "$O/Payload" && cp -cR "$APP" "$O/Payload/DmIOS.app" || die "copy app"
