@@ -102,7 +102,8 @@ HLE_FORCE("_ZN2nn2pl17GetSharedFontSizeENS0_14SharedFontTypeE", "共享字体大
 // SharedFontData is 0x18 bytes: type at +0, address at +8, size at +0x10 (seen at sdk+0x40f370 in SDK 21). Serve every type from the host stand-ins,
 // the same address / size convention as GetSharedFontAddress / GetSharedFontSize.
 typedef struct { uint32_t type; uint32_t pad; const void *addr; size_t size; } dm_shared_font_t;
-HLE_FORCE("_ZN2nn2pl13GetSharedFontEPiPNS0_14SharedFontDataEiNS_8settings12LanguageCodeE", "枚举共享字体：SDK 版经 pl 共享资源管理器连 sm；直接用宿主替身字体", Result, h_pl_GetSharedFont, int *count, void *data, int max, uint32_t lang) {
+// Returns bool (1 = done), not Result: the game loops while it is 0 (main+0x501ef0 in Rhythm Heaven), sleeping and asking again.
+HLE_FORCE("_ZN2nn2pl13GetSharedFontEPiPNS0_14SharedFontDataEiNS_8settings12LanguageCodeE", "枚举共享字体：SDK 版经 pl 共享资源管理器连 sm；直接用宿主替身字体", int, h_pl_GetSharedFont, int *count, void *data, int max, uint32_t lang) {
     (void)lang;
     dm_shared_font_t *out = data;
     int total = 0;
@@ -115,7 +116,7 @@ HLE_FORCE("_ZN2nn2pl13GetSharedFontEPiPNS0_14SharedFontDataEiNS_8settings12Langu
         n++;
     }
     if (count) *count = total;
-    return RES_OK;
+    return 1;
 }
 // Whether running on a Switch 2 (codename Ounce) (returns bool): the host reports false, as a Switch 1. Mario 1.2.1 uses it to decide whether to count add-on content (the upgrade pack) and suggest the Switch 2 Edition
 HLE_FORCE("_ZN2nn2pl16IsRunningOnOunceEv", "是否 Switch 2：否", unsigned, h_pl_IsOunce, void) { return 0; }

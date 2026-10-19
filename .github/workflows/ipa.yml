@@ -16,6 +16,10 @@ on:
         description: 'IPA file name (default: the game name from control.nacp)'
         required: false
         default: ''
+      host_only:
+        description: 'upload only the host executable (patch an existing IPA; skips the 2.5 GB IPA artifact)'
+        type: boolean
+        default: false
 
 jobs:
   ipa:
@@ -70,7 +74,7 @@ jobs:
           GAME: ${{ inputs.game }}
           OUT_NAME: ${{ inputs.out_name }}
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ always() && !inputs.host_only }}
         with:
           name: ipa
           path: |
