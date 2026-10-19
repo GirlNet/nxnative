@@ -65,6 +65,7 @@ APP=$DD/Build/Products/Release-iphoneos/DmIOS.app; [ -d "$APP" ] || APP=$(grep -
 [ -n "$APP" ] && [ -d "$APP" ] || die "no built app"; t "app: $APP"
 # Host-only update: keep the executable next to build.log, so a code-only fix can be shipped as a few MB and patched into the existing IPA
 cp "$APP/DmIOS" "$O/DmIOS.bin" || die "copy DmIOS executable"
+if [ "${DM_HOST_ONLY:-0}" = 1 ]; then t "host-only build: stopping after DmIOS.bin"; exit 0; fi
 
 t "assemble Payload (app + RomFS)"
 rm -rf "$O/Payload" && mkdir -p "$O/Payload" && cp -cR "$APP" "$O/Payload/DmIOS.app" || die "copy app"
