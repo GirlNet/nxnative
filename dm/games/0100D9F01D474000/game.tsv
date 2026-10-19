@@ -48,6 +48,10 @@ nvn_img_base	0x120
 nvn_img_slots	8
 nvn_ssbo_bases	vs=0x110 ps=0x510 cs=0x310
 
+# ---- Fonts ----
+# The SDK 21 font engine takes the shared font as a plain TTF (same as 3D World); with the BFTTF header the glyph atlases stay blank and the screen is black
+shared_font	ttf
+
 # ---- Shader split (shader_split.py) ----
 # Source groups: a path containing the first part goes to the second group (first match wins; shaders embedded in main always go to main, no match goes to other)
 shader_groups	/shader/=shader
