@@ -96,5 +96,7 @@ jobs:
           path: |
             w/build/ios/pkg/DmIOS.bin
             build.log
+            w/shader/cache/b-*/*_b.metal
+            w/shader/cache/b-*/*_b.json
           retention-days: 1
           if-no-files-found: ignore
