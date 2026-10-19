@@ -915,6 +915,10 @@ static MTLTextureDescriptor *tex_desc(const tex_t *t, int packaged) {
     d.pixelFormat = (MTLPixelFormat)pf;
     d.width = t->d.width ? t->d.width : 1; d.height = t->d.height ? t->d.height : 1; d.depth = 1; d.arrayLength = 1;
     d.mipmapLevelCount = t->d.levels ? t->d.levels : 1;
+    // DM_NVN_BC_MIPS=0: compressed textures keep only level 0. Their small mip levels have dimensions that are not block multiples
+    // (Rhythm Heaven's 5344x2640 / 3872x768 UI atlases), and uploading those levels hangs/aborts in Metal. UI sampling only needs level 0.
+    { static int bc_mips_off = -1; if (bc_mips_off < 0) { const char *e = getenv("DM_NVN_BC_MIPS"); bc_mips_off = e && *e && strcmp(e, "0") == 0; }
+      if (bc_mips_off && fmt_compressed(t->d.format)) d.mipmapLevelCount = 1; }
     switch (t->d.target) {
         // 1D / 1D array are created as one-row 2D / 2D array textures: translated shaders never declare texture1d (0 in all five games' libraries) and always sample them as 2D; a Metal 1D texture bound to a texture2d argument is a type mismatch with undefined reads.
         // Super Mario 3D World + Bowser's Fury's material shaders sample 64x1 R32F 1D lookup tables heavily every frame (on Maxwell a 2D sample of a 1D texture reads that one row)
