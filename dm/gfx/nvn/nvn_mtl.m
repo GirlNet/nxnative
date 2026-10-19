@@ -1297,9 +1297,11 @@ static void tex_zero_fill(id<MTLTexture> mt) {
 static int clear_rect_zero(int i);
 // Linear textures (LINEAR) in a CPU-visible pool: the game writes the pool memory directly from the CPU (SMBW's glyph cache: 2048×8192 R8, IMAGE|LINEAR, pool CPU_UNCACHED|GPU_CACHED,
 // the font engine rasterizes glyphs into it on the CPU). A GPU-private texture never sees those writes → all menu / dialog text is blank. On unified memory, create a linear texture directly on the pool buffer (zero copy): the GPU reads the current content at execution time, same as NVN.
+// Rhythm Heaven puts its font atlas in a pool it marked CPU_NO_ACCESS and still writes it through the mapped pool; the emulated CPU has no such protection, so the flag cannot decide visibility here.
+static int tex_is_linear(const tex_t *t) { return (t->d.flags & (NVN_TEXTURE_FLAGS_LINEAR | NVN_TEXTURE_FLAGS_LINEAR_RENDER_TARGET)) != 0; }
 static id<MTLTexture> tex_linear(const tex_t *t) {
     // LINEAR_RENDER_TARGET is a linear layout too (SMBW's sky colour ramps: four 64×1 RGBA16F, written by the CPU every frame)
-    if (!(t->d.flags & (NVN_TEXTURE_FLAGS_LINEAR | NVN_TEXTURE_FLAGS_LINEAR_RENDER_TARGET)) || !t->mem || !t->pool || (t->pool->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS)) return nil;
+    if (!tex_is_linear(t) || !t->mem || !t->pool) return nil;
     if (t->d.target != NVN_TEXTURE_TARGET_2D || t->d.levels > 1 || t->d.samples > 1) return nil;
     uint32_t pf = 0; uint8_t swz[4]; int bw, bh, bpb = nvn_fmt_bpb(t->d.format, &bw, &bh);
     if (!nvn_fmt_to_mtl(t->d.format, &pf, swz) || !pf || !bpb || bw != 1 || bh != 1) return nil;
@@ -1313,6 +1315,36 @@ static id<MTLTexture> tex_linear(const tex_t *t) {
     d.resourceOptions = b.resourceOptions;
     d.usage = MTLTextureUsageShaderRead | (t->d.flags & NVN_TEXTURE_FLAGS_IMAGE ? MTLTextureUsageShaderWrite : 0) | (t->d.flags & NVN_TEXTURE_FLAGS_LINEAR_RENDER_TARGET ? MTLTextureUsageRenderTarget : 0);
     return [b newTextureWithDescriptor:d offset:mo bytesPerRow:row];
+}
+// A linear texture whose view changes the pixel size (Rhythm Heaven: 7x7 R8 storage, 32-byte rows, sampled through an R32F view). Metal cannot make an
+// R8 -> R32F pixel-format view, so build another zero-copy linear texture on the same pool buffer with the view's format. The guest keeps writing that
+// storage, so this stays live instead of snapshotting it.
+static id<MTLTexture> tex_linear_as(const tex_t *t, MTLPixelFormat pf, NSUInteger w, NSUInteger h, NSUInteger row) {
+    if (!t->mem || !t->pool || !w || !h || !row) return nil;
+    void *mb; uint64_t mo;
+    if (!mtl_addr((uint64_t)t->mem, (uint64_t)row * h, &mb, &mo)) return nil;
+    id<MTLBuffer> b = (__bridge id<MTLBuffer>)mb;
+    NSUInteger al = [g_dev minimumLinearTextureAlignmentForPixelFormat:pf];
+    if (!al || mo % al || row % al) return nil;
+    MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:pf width:w height:h mipmapped:NO];
+    d.resourceOptions = b.resourceOptions;
+    d.usage = MTLTextureUsageShaderRead | (t->d.flags & NVN_TEXTURE_FLAGS_IMAGE ? MTLTextureUsageShaderWrite : 0);
+    return [b newTextureWithDescriptor:d offset:mo bytesPerRow:row];
+}
+// Fallback for the same case when Metal refuses the buffer alias (offset / row alignment): copy the guest rows into a private texture in the view's
+// format. This is a one-time snapshot; the alias above is preferred because it follows later CPU writes.
+static id<MTLTexture> tex_linear_view_upload(const tex_t *t, MTLPixelFormat pf, NSUInteger w, NSUInteger h) {
+    int bw, bh, bpb = nvn_fmt_bpb(t->d.format, &bw, &bh);
+    size_t row = t->d.stride ? t->d.stride : (size_t)w * (bpb ? bpb : 1);
+    if (!t->mem || !w || !h || !row) return nil;
+    MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:pf width:w height:h mipmapped:NO];
+    d.usage = MTLTextureUsageShaderRead | (t->d.flags & NVN_TEXTURE_FLAGS_IMAGE ? MTLTextureUsageShaderWrite : 0);
+    d.storageMode = MTLStorageModeShared;
+    id<MTLTexture> mt = [g_dev newTextureWithDescriptor:d];
+    if (!mt) return nil;
+    [mt replaceRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0 withBytes:t->mem bytesPerRow:row];
+    res_add(mt);
+    return mt;
 }
 // CPU-written block-linear textures (WriteTexels): the game gave no packaged layout and changes the content from the CPU each frame (Engage's movie frames: a Y plane R8 + a UV plane RG8, WriteTexels every frame).
 // Only packaged textures used to be uploaded from guest memory, so such a texture became a GPU-only texture whose content stayed 0. Their serials are recorded and they resolve through the packaged path (upload + re-upload on dirty pages)
@@ -1332,6 +1364,33 @@ static int tex_cpu_written(uint64_t serial) {
     pthread_mutex_lock(&g_cpu_tex_mu); int r = g_cpu_tex && CFSetContainsValue(g_cpu_tex, (const void *)(uintptr_t)serial); pthread_mutex_unlock(&g_cpu_tex_mu);
     return r;
 }
+// Some games (Rhythm Heaven) decompress or rasterize directly into a pool that is not declared packaged. Guest memory is the ground truth for such
+// textures: if its storage already holds non-zero bytes at first use, upload it through the packaged path instead of starting from a zeroed private
+// texture. Textures rendered only on the GPU keep zero guest pages here, so they still take the normal path. DM_NVN_GUESTUP=0 turns this off.
+static pthread_mutex_t g_guest_mu = PTHREAD_MUTEX_INITIALIZER; static CFMutableSetRef g_guest_scanned;
+static int guestup_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_NVN_GUESTUP"); v = e && *e ? strcmp(e, "0") != 0 : DM_GAME_GUEST_TEX_UPLOAD; } return v; }
+static int guest_tex_data(const tex_t *t) {
+    if (!t->mem || !t->L.size || t->d.samples > 1) return 0;
+    if (t->d.target == 5 || t->d.target == 6 || t->d.target == 10) return 0;   // MS / BUFFER: not a 2D upload
+    uint32_t pf = 0; uint8_t swz[4];
+    if (!nvn_fmt_to_mtl(t->d.format, &pf, swz) || !pf) return 0;
+    if (t->d.format >= 0x31 && t->d.format <= 0x36) return 0;   // depth / stencil: guest bytes are not the GPU state
+    pthread_mutex_lock(&g_guest_mu);
+    if (!g_guest_scanned) g_guest_scanned = CFSetCreateMutable(NULL, 0, NULL);
+    int seen = CFSetContainsValue(g_guest_scanned, (const void *)(uintptr_t)t->serial);
+    if (!seen) CFSetAddValue(g_guest_scanned, (const void *)(uintptr_t)t->serial);
+    pthread_mutex_unlock(&g_guest_mu);
+    if (seen) return 0;
+    size_t n = t->L.size, step = n > (1u << 20) ? n / (1u << 20) : 1;
+    for (size_t i = 0; i < n; i += step) if (t->mem[i]) {
+        mtl_tex_cpu_written(t);
+        if (getenv("DM_NVN_TEXCPU") || getenv("DM_NVN_GUESTUP_LOG"))
+            MLOG("贴图 ser=%llu 的池内存在首次使用时已有数据（%ux%u 格式 %#x 存储 %llu 字节）：按 CPU 写入上传", (unsigned long long)t->serial,
+                 t->d.width, t->d.height, t->d.format, (unsigned long long)t->L.size);
+        return 1;
+    }
+    return 0;
+}
 static id<MTLTexture> tex_mtl_(const tex_t *ct);
 static id<MTLTexture> tex_mtl(const tex_t *ct) { AP_B; id<MTLTexture> r = tex_mtl_(ct); AP_E(4); return r; }
 static uint64_t g_texinfo_ser[8]; static int g_texinfo_n;
@@ -1339,7 +1398,9 @@ static id<MTLTexture> tex_mtl_(const tex_t *ct) {
     tex_t *t = (tex_t *)ct;
     if (!t || !t->serial) return nil;
     if (t->magic != MAGIC('T', 'E', 'X', 0)) { RED_ONCE(70, "贴图对象已失效（magic %#x，首例 ser=%llu）：不建 MTLTexture", t->magic, (unsigned long long)t->serial); return nil; }
-    int packaged = (t->has_layout || tex_cpu_written(t->serial)) && t->mem;
+    int linear = tex_is_linear(t);
+    if (!linear && guestup_on() && !t->has_layout && !tex_cpu_written(t->serial)) guest_tex_data(t);
+    int packaged = !linear && (t->has_layout || tex_cpu_written(t->serial)) && t->mem;
     {   // Diagnostic DM_NVN_TEXINFO=WxH: log storage and description of textures of that size on first resolution (to tell whether two textures share storage and why they were not merged)
         static int ti = -1; static uint32_t tw, th; static uint64_t last[64]; static int nl;
         if (ti > 0 && t->d.width == tw && t->d.height == th && g_texinfo_n < 8) { int dup = 0; for (int i = 0; i < g_texinfo_n; i++) dup |= g_texinfo_ser[i] == t->serial; if (!dup && !(t->d.flags & 8)) g_texinfo_ser[g_texinfo_n++] = t->serial; }   // remember the non-render-target ones (no COMPRESSIBLE) for DM_NVN_TEXRAW=info
@@ -2342,7 +2403,7 @@ void mtl_prog_release(prog_t *p) { if (p->serial) serial_del(p->serial); }
 
 // ---------- Descriptor pool: texture ID / sampler ID → object ----------
 // At registration the whole texture object is snapshotted (NVN semantics: the descriptor has been written into the pool); view: the MTLTexture for that ID (a view or the base texture, held via CFBridgingRetain) and the serial-table / guest-write generations at the time it was obtained
-typedef struct { tex_t t; int ok; view_t v; int has_v; void *view; uint64_t view_id, view_rid, view_ser, view_dirty;
+typedef struct { tex_t t; int ok; view_t v; int has_v; void *view; uint64_t view_id, view_rid, view_ser, view_dirty, view_base_rid; uint8_t view_indep;
                  void *alt, *alt_of; uint64_t alt_rid; uint8_t alt_type;   // alt: compatible view used when the shader's declared type differs from view (tex_fit), alt_of = the view it was built from
                  void *ar, *ar_of; uint64_t ar_rid; } treg_t;              // ar: the alpha-from-red view for the profile's alpha_from_red shaders (tex_alpha_red), ar_of = the view it was built from
 static treg_t *g_treg; static int g_ntreg;
@@ -2420,7 +2481,7 @@ static id<MTLTexture> tex_by_id(int tid) {   // Caller holds g_rmu
     id<MTLTexture> v = (__bridge id<MTLTexture>)rp->view;
     if (v) {   // The serial table or guest memory has changed: check whether the base texture was re-uploaded and replaced; if so the view is invalidated
         id<MTLTexture> cur = tex_mtl(&rp->t);
-        if (cur == v || v.parentTexture == cur) { rp->view_ser = sg; rp->view_dirty = dg; return v; }
+        if (cur == v || v.parentTexture == cur || (rp->view_indep && cur && cur.gpuResourceID._impl == rp->view_base_rid)) { rp->view_ser = sg; rp->view_dirty = dg; return v; }
         defer_obj_unref(v); CFRelease(rp->view); rp->view = NULL; rp->view_rid = 0; v = nil;
     }
     treg_t r = *rp;
@@ -2432,25 +2493,44 @@ static id<MTLTexture> tex_by_id(int tid) {   // Caller holds g_rmu
     if (r.has_v && r.v.set_swizzle) memcpy(sw, r.v.swz, 4);
     else if (r.t.set_swz) for (int c = 0; c < 4; c++) sw[c] = (uint8_t)(r.t.swz >> (3 * c) & 7);
     for (int c = 0; c < 4; c++) { if (sw[c] > MTLTextureSwizzleAlpha) sw[c] = (uint8_t)(MTLTextureSwizzleRed + c); if (sw[c] != MTLTextureSwizzleRed + c) need_sw = 1; }
+    id<MTLTexture> alt = nil;
     if ((r.has_v && (r.v.set_format || r.v.set_levels || r.v.set_layers || r.v.set_target)) || need_sw) {
         if (!r.has_v) memset(&r.v, 0, sizeof r.v);
         uint32_t pf = (uint32_t)base.pixelFormat; uint8_t swz[4];
         if (r.v.set_format && !(nvn_fmt_to_mtl(r.v.format, &pf, swz) && pf)) pf = (uint32_t)base.pixelFormat;
         { uint32_t upf; int ubpp; if (r.v.set_format && bc_unpack(r.v.format, &upf, &ubpp)) pf = upf; }   // No BC: a BC view is switched to the decompressed format just like the base texture
-        if (r.v.set_format && tex_need_pfv(base.pixelFormat, (MTLPixelFormat)pf) && !(base.usage & MTLTextureUsagePixelFormatView)) {
-            base = tex_upgrade_pfv(&rp->t, base, (MTLPixelFormat)pf);
-            sg = g_ser_gen;
-        }
         NSUInteger l0 = r.v.set_levels ? r.v.base_level : 0, nl = r.v.set_levels && r.v.nlevels ? r.v.nlevels : base.mipmapLevelCount - l0;
         NSUInteger s0 = r.v.set_layers ? r.v.min_layer : 0;
         NSUInteger ns = base.textureType == MTLTextureType3D ? 1 : (r.v.set_layers && r.v.nlayers ? r.v.nlayers : base.arrayLength * (base.textureType == MTLTextureTypeCube || base.textureType == MTLTextureTypeCubeArray ? 6 : 1) - s0);
         MTLTextureType tt = r.v.set_target ? ttype(r.v.target, base.textureType) : base.textureType;
         if (tt == MTLTextureType2D && ns > 1) ns = 1;
-        v = need_sw ? [base newTextureViewWithPixelFormat:(MTLPixelFormat)pf textureType:tt levels:NSMakeRange(l0, nl) slices:NSMakeRange(s0, ns) swizzle:MTLTextureSwizzleChannelsMake(sw[0], sw[1], sw[2], sw[3])]
-                    : [base newTextureViewWithPixelFormat:(MTLPixelFormat)pf textureType:tt levels:NSMakeRange(l0, nl) slices:NSMakeRange(s0, ns)];
-        if (!v) { RED_ONCE(11, "贴图视图建不出 id %d", tid); v = base; }
+        // A linear texture can be viewed with a different pixel size in NVN (Rhythm Heaven's 7x7 R8 storage read as R32F). Metal only allows views
+        // within the same pixel size, so make a second linear texture on the same guest storage with the view format instead.
+        if (r.v.set_format && tex_is_linear(&r.t) && l0 == 0 && nl == 1 && s0 == 0 && ns == 1 && tt == MTLTextureType2D) {
+            int vb, vbh, vbp = nvn_fmt_bpb(r.v.format, &vb, &vbh), bb, bbh, bbp = nvn_fmt_bpb(r.t.d.format, &bb, &bbh);
+            if (vbp && bbp && vbp != bbp) {
+                NSUInteger row = r.t.d.stride ? r.t.d.stride : base.width * bbp;
+                alt = tex_linear_as(&r.t, (MTLPixelFormat)pf, base.width, base.height, row);
+                int alias = alt != nil;
+                if (!alt) alt = tex_linear_view_upload(&r.t, (MTLPixelFormat)pf, base.width, base.height);
+                if (alt) MLOG("线性贴图视图 ser=%llu %lux%lu 基格式 %#x（%d 字节/像素）→ 视图格式 %#x（%d 字节/像素）：%s", (unsigned long long)r.t.serial,
+                              (unsigned long)base.width, (unsigned long)base.height, r.t.d.format, bbp, r.v.format, vbp, alias ? "同一池存储零拷贝" : "从池内存上传");
+            }
+        }
+        if (!alt && r.v.set_format && tex_need_pfv(base.pixelFormat, (MTLPixelFormat)pf) && !(base.usage & MTLTextureUsagePixelFormatView)) {
+            base = tex_upgrade_pfv(&rp->t, base, (MTLPixelFormat)pf);
+            sg = g_ser_gen;
+        }
+        if (alt) {
+            v = need_sw ? [alt newTextureViewWithPixelFormat:alt.pixelFormat textureType:alt.textureType levels:NSMakeRange(0, alt.mipmapLevelCount) slices:NSMakeRange(0, alt.arrayLength) swizzle:MTLTextureSwizzleChannelsMake(sw[0], sw[1], sw[2], sw[3])] : alt;
+        } else {
+            v = need_sw ? [base newTextureViewWithPixelFormat:(MTLPixelFormat)pf textureType:tt levels:NSMakeRange(l0, nl) slices:NSMakeRange(s0, ns) swizzle:MTLTextureSwizzleChannelsMake(sw[0], sw[1], sw[2], sw[3])]
+                        : [base newTextureViewWithPixelFormat:(MTLPixelFormat)pf textureType:tt levels:NSMakeRange(l0, nl) slices:NSMakeRange(s0, ns)];
+            if (!v) { RED_ONCE(11, "贴图视图建不出 id %d", tid); v = base; }
+        }
     }
     rp->view = (void *)CFBridgingRetain(v); rp->view_rid = v.gpuResourceID._impl; rp->view_ser = sg; rp->view_dirty = dg;
+    rp->view_indep = alt != nil; rp->view_base_rid = base.gpuResourceID._impl;
     return v;
 }
 // Hot-path object fetch: if the table entry is valid, return the table-held pointer directly (without ARC retain / autorelease), otherwise take the slow path to build / validate. Caller holds g_rmu.

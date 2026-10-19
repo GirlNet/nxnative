@@ -78,6 +78,8 @@ def header(g):
     if sf not in ('bfttf', 'ttf'): sys.exit(f'{g.id}: shared_font 只能是 bfttf / ttf | shared_font must be bfttf or ttf: {sf}')
     pl = g.get('pad_layout', 'simple')   # the virtual gamepad's first layout (DmGamepad.m; afterwards whatever the player switched to in game is kept): simple = 2D, full = 3D (D-pad, right stick, L3 / R3)
     if pl not in ('simple', 'full'): sys.exit(f'{g.id}: pad_layout 只能是 simple / full | pad_layout must be simple or full: {pl}')
+    gu = g.get('guest_tex_upload', 'off')   # upload textures whose pool memory already holds data even without a packaged layout (nvn_mtl.m guest_tex_data): on / off
+    if gu not in ('on', 'off'): sys.exit(f'{g.id}: guest_tex_upload 只能是 on / off | guest_tex_upload must be on or off: {gu}')
     fbs = g.words('feedback_snap', '')   # fragment shader key prefixes whose same-pass feedback sampling gets a snapshot first (nvn_mtl.m fb_prepare); none by default
     if any(not re.fullmatch(r'[0-9a-f]{8,16}', k) for k in fbs): sys.exit(f'{g.id}: feedback_snap 要写片元着色器键（8–16 位小写十六进制）| feedback_snap takes fragment shader keys (8-16 lowercase hex digits): {fbs}')
     afr = g.words('alpha_from_red', '')   # fragment shader key prefixes that read single-channel textures mapped (R, 0, 0, 1) with alpha = red (nvn_mtl.m tex_alpha_red); none by default
@@ -107,6 +109,7 @@ def header(g):
          f'#define DM_GAME_CORE_PREEMPT {int(cp == "on")}',
          f'#define DM_GAME_SHARED_FONT_TTF {int(sf == "ttf")}',
          f'#define DM_GAME_PAD_FULL {int(pl == "full")}',
+         f'#define DM_GAME_GUEST_TEX_UPLOAD {int(gu == "on")}',
          f'#define DM_GAME_FEEDBACK_SNAP {q(" ".join(fbs))}',
          f'#define DM_GAME_ALPHA_FROM_RED {q(" ".join(afr))}',
          f'#define DM_GAME_NVN_API_MAJOR {api.split(".")[0]}',

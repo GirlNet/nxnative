@@ -1556,6 +1556,9 @@ static void write_texels(const tex_t *t, const view_t *v, const NVNcopyRegion *r
     mtl_tex_cpu_written(t);
 }
 NVN(nvnTextureWriteTexels, void, const NVNtexture *t, const NVNtextureView *v, const NVNcopyRegion *r, const void *src) { write_texels(CTX(t), (const view_t *)v, r, src, 0, 0); }
+NVN(nvnTextureWriteTexelsStrided, void, const NVNtexture *t, const NVNtextureView *v, const NVNcopyRegion *r, const void *src, ptrdiff_t row, ptrdiff_t img) {
+    write_texels(CTX(t), (const view_t *)v, r, src, row > 0 ? (size_t)row : 0, img > 0 ? (size_t)img : 0);
+}
 // The movie decoder's native-texture output (DecoderMode 2, hle_movie.c): a whole frame into level 0 of the client texture, as WriteTexels does; returns the texture format, or −1 when the object is not a texture
 int nvn_host_write_texture(const void *nvntex, const void *src, int w, int h, size_t row, int *tw, int *th) {
     const tex_t *t = nvntex;
@@ -1573,4 +1576,8 @@ int nvn_host_signal_sync(void *nvnsync) {
     if (!o || o->magic != MAGIC('S', 'Y', 'N', 'C')) return -1;
     o->fence = 0; o->fenced = 1; return 0;
 }
-NVN(nvnTextureFlushTexels, void, const NVNtexture *t, const NVNtextureView *v, const NVNcopyRegion *r) { (void)t; (void)v; (void)r; }   // unified memory + dirty page tracking: nothing to flush
+NVN(nvnTextureFlushTexels, void, const NVNtexture *t, const NVNtextureView *v, const NVNcopyRegion *r) {
+    (void)v; (void)r;
+    // Unified memory + dirty-page tracking: nothing to flush, but a flush means the CPU wrote the texture, so it must be re-uploaded from guest memory.
+    const tex_t *o = CTX(t); if (o->mem) mtl_tex_cpu_written(o);
+}
