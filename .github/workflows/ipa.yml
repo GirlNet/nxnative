@@ -32,6 +32,7 @@ jobs:
         run: |
           build() {
             set -e
+            ROOT=$PWD   # build_ipa.sh changes into dm/ios: every path it gets must be absolute
             # the payload travels in four ~650 MB parts: home uploads get reset on longer connections
             for i in 01 02 03 04; do curl -fL --retry 3 -o "payload.part$i" "$PAYLOAD_URL/payload.part$i"; done
             cat payload.part01 payload.part02 payload.part03 payload.part04 > payload.tar.zst
@@ -51,7 +52,8 @@ jobs:
             V=$(sed -n 's/^#define DMSH_CHAIN "\(.*\)"/\1/p' "dm/games/$GAME/dmsh_chain.h")
             python3 dm/gfx/tools/c1_guard.py "w/shader/cache/b-$V" "dm/games/$GAME/c1_full.tsv"
             OUT="$OUT_NAME"; [ -n "$OUT" ] || OUT="$(python3 dm/tools/nacp.py w/data/v0/control.nacp).ipa"
-            GAME="$GAME" W=w PATCHED=w/build/patched_v0 ROMFS=w/data/v0/RomFS MSL_IOS=w/shader/ios AOC='' FONT_PY=python3 \
+            case "$OUT" in /*) ;; *) OUT="$ROOT/$OUT" ;; esac
+            GAME="$GAME" W="$ROOT/w" PATCHED="$ROOT/w/build/patched_v0" ROMFS="$ROOT/w/data/v0/RomFS" MSL_IOS="$ROOT/w/shader/ios" AOC='' FONT_PY=python3 \
               bash dm/ios/tools/build_ipa.sh "$OUT"
           }
           # on failure, echo the first error lines as annotations: they are readable without sign-in, the full log is not
@@ -60,7 +62,7 @@ jobs:
           st=${PIPESTATUS[0]}
           set -e
           if [ "$st" -ne 0 ]; then
-            grep -E 'error:|Error [0-9]|Traceback|fatal|【红】' build.log | head -n 5 | while IFS= read -r l; do echo "::error::$l"; done
+            grep -E 'error:|Error [0-9]|Traceback|fatal|FAIL:|【红】' build.log | head -n 5 | while IFS= read -r l; do echo "::error::$l"; done
             exit "$st"
           fi
         env:
