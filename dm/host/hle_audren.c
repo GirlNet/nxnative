@@ -12,7 +12,8 @@
 //   each command +0x00 magic 0xcafebabe, +0x04 enabled, +0x05 command ID (DeviceSink = 0x13), +0x06 size; DeviceSink +0x128 upsampler buffer, +0x130 input count, +0x134 input indices (s16).
 // SDK 21 keeps the header and the 8-byte command header, but changes the command header fields: +0x00 flags (bit 0 = command, otherwise a data node), +0x01 command ID,
 //   +0x02 int16 size, +0x04 offset; the payload starts at +0x08. CommandListProcessor::ProcessCommands / DispatchCommand of Rhythm Heaven's sdk load the ID from +1
-//   and advance by the signed 16-bit size at +2. The sink is still the 0x148-byte command, so its payload offsets are unchanged.
+//   and advance by the signed 16-bit size at +2. The SDK 21 DeviceSink command (ID 0x14) is 0x140 bytes: device name at +0x18, upsampler buffer pointer at +0x120,
+//   input count at +0x128, input indices (s16) at +0x12c (GenerateDeviceSinkCommand in the SDK writes exactly these fields).
 #include "hle.h"
 #include <stdatomic.h>
 #include <time.h>
@@ -99,10 +100,15 @@ HLE_FORCE("_ZN2nn5audio18CloseAudioRendererENS0_19AudioRendererHandleE", "关渲
 }
 
 // DeviceSink input mix buffers → int16 stereo. The command ID is 0x13 in SDK 16; SDK 20 inserted a command before it, making it 0x14 (written at sdk+0x233f44); SDK 8 (Link's Awakening)
-//   has four fewer commands before it, making it 0x10. The layout is the same in all three: 0x148 bytes, +0x20 device name ("MainAudioOut"), +0x128 upsample buffer, +0x130 input count,
-//   +0x134 input indices. render_once sets the ID by layout; when the first full command list has no command with that ID, its one 0x148-byte command with 1 to 6 inputs is the sink
-//   (without this, Link's Awakening rendered every frame and played silence: the music and sound effects never reached the output, only the movies' own AudioOut did)
+//   has four fewer commands before it, making it 0x10. SDK 16/20 use a 0x148-byte command (+0x20 device name, +0x128 upsample buffer, +0x130 input count, +0x134 input indices);
+//   SDK 21 uses 0x140 bytes (+0x18 name, +0x120 upsample buffer, +0x128 count, +0x12c indices). render_once sets the ID by layout; when the first full command list
+//   has no command with that ID, its one 0x140/0x148-byte command with 1 to 6 inputs is the sink (without this, Link's Awakening rendered every frame and played silence:
+//   the music and sound effects never reached the output, only the movies' own AudioOut did)
 static int g_sink_id = 0x13;
+// The CPU DSP keeps mix buffers in 32-bit fixed point. SDK 21 uses Q31 (full scale 2^31); the same host code used to treat the values as already
+// 16-bit-range, so every loud sample saturated to +/-32767 and the output was a square-wave buzz. Detect the scale from the first non-silent frame
+// (Q31 -> shift 16, Q23 -> shift 8, already-16-bit -> no shift) instead of hard-coding it for one SDK.
+static int g_s16_shift = -1;
 static int capture(const uint8_t *cl, int16_t *dst) {
     uint32_t ncmd = *(const uint32_t *)(cl + 4), samples = *(const uint32_t *)(cl + 0x14), rate = *(const uint32_t *)(cl + 0x18);
     const int32_t *mix = *(const int32_t *const *)(cl + 8);
@@ -114,7 +120,10 @@ static int capture(const uint8_t *cl, int16_t *dst) {
             int16_t sz = *(const int16_t *)(q + 2);
             if (sz <= 0) break;
             if (q[0] & 1) hist[q[1] & 63]++;
-            if (sz == 0x148 && *(const uint32_t *)(q + 0x130) - 1 < 6) { cand = q[1]; ncand++; }
+            if (sz == 0x140 || sz == 0x148) {
+                uint32_t nin = sz == 0x140 ? *(const uint32_t *)(q + 0x128) : *(const uint32_t *)(q + 0x130);
+                if (nin - 1 < 6) { cand = q[1]; ncand++; }
+            }
             q += sz;
         }
         for (int k = 0; k < 64; k++) if (hist[k]) o += snprintf(line + o, sizeof line - o, " %d×%d", k, hist[k]);
@@ -126,14 +135,25 @@ static int capture(const uint8_t *cl, int16_t *dst) {
     for (uint32_t i = 0; i < ncmd; i++) {
         int16_t size = *(const int16_t *)(c + 2);
         if (size <= 0) { if (!logged++) LOG("【红】audren：命令表第 %u 条格式不对（标志 %#x 号 %u 大小 %d）", i, c[0], c[1], size); return 0; }
-        if ((c[0] & 1) && c[1] == g_sink_id && size >= 0x138) {
-            uint32_t nin = *(const uint32_t *)(c + 0x130); const int16_t *in = (const int16_t *)(c + 0x134);
-            const int32_t *up = *(const int32_t *const *)(c + 0x128);
+        if ((c[0] & 1) && c[1] == g_sink_id && size >= 0x130) {
+            int sdk21 = size == 0x140;
+            uint32_t nin = *(const uint32_t *)(c + (sdk21 ? 0x128 : 0x130));
+            const int16_t *in = (const int16_t *)(c + (sdk21 ? 0x12c : 0x134));
+            const int32_t *up = *(const int32_t *const *)(c + (sdk21 ? 0x120 : 0x128));
             if (!logged++) LOG("audren：DeviceSink 输入 %u 个（%d %d …）采样率 %u 每帧 %u 混音缓冲 %p 上采样缓冲 %p", nin, nin ? in[0] : -1, nin > 1 ? in[1] : -1, rate, samples, (void *)mix, (void *)up);
             if (!nin || samples > FRAME_MAX) return 0;
             // Input buffers: at 48 kHz the mix buffers; with 32 kHz rendering DeviceSink reads the upsampled buffer (inputs laid out in order)
             const int32_t *ch[6]; uint32_t k = nin > 6 ? 6 : nin;
             for (uint32_t j = 0; j < k; j++) ch[j] = up && rate != 48000 ? up + (size_t)j * samples : mix + (size_t)in[j] * samples;
+            if (g_s16_shift < 0) {
+                int64_t mx = 0;
+                for (uint32_t j = 0; j < k; j++) for (uint32_t s = 0; s < samples; s++) { int64_t v = ch[j][s]; v = v < 0 ? -v : v; if (v > mx) mx = v; }
+                if (mx) {
+                    g_s16_shift = mx > 0x00FFFFFF ? 16 : mx > 0x0000FFFF ? 8 : 0;
+                    LOG("audren：混音样本幅度 %lld → 输出前右移 %d 位（%s）", (long long)mx, g_s16_shift, g_s16_shift == 16 ? "Q31" : g_s16_shift == 8 ? "Q23" : "已是 int16 范围");
+                }
+            }
+            int sh = g_s16_shift > 0 ? g_s16_shift : 0;
             // Channel order front-left front-right center LFE back-left back-right; 6 → 2 with the system default downmix coefficients (front 1.0, center 0.707, LFE 0.251, back 0.707, Q15)
             enum { CF = 32768, CC = 23167, CL = 8224, CB = 23167 };
             uint64_t loud = 0;
@@ -141,7 +161,8 @@ static int capture(const uint8_t *cl, int16_t *dst) {
                 int32_t l, r;
                 if (k >= 6) { int64_t c = (int64_t)ch[2][s] * CC + (int64_t)ch[3][s] * CL;
                               l = (int32_t)(((int64_t)ch[0][s] * CF + c + (int64_t)ch[4][s] * CB) >> 15); r = (int32_t)(((int64_t)ch[1][s] * CF + c + (int64_t)ch[5][s] * CB) >> 15); }
-                else { l = ch[0][s]; r = k > 1 ? ch[1][s] : l; }
+                else { l = ch[0][s] >> sh; r = k > 1 ? ch[1][s] >> sh : l; }
+                if (k >= 6) { l >>= sh; r >>= sh; }
                 l = l > 32767 ? 32767 : l < -32768 ? -32768 : l; r = r > 32767 ? 32767 : r < -32768 ? -32768 : r;
                 dst[2 * s] = (int16_t)l; dst[2 * s + 1] = (int16_t)r; loud |= (uint64_t)(l | r);
             }
