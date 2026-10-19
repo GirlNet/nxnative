@@ -70,7 +70,7 @@ if [ "${DM_HOST_ONLY:-0}" = 1 ]; then t "host-only build: stopping after DmIOS.b
 t "assemble Payload (app + RomFS)"
 rm -rf "$O/Payload" && mkdir -p "$O/Payload" && cp -cR "$APP" "$O/Payload/DmIOS.app" || die "copy app"
 A=$O/Payload/DmIOS.app; rm -rf "$A/_CodeSignature" "$A/embedded.mobileprovision"
-cp -cR "$ROMFS" "$A/romfs" || die "copy RomFS"
+if [ "${DM_THIN_IPA:-0}" = 1 ]; then t "thin IPA: RomFS stays in Documents/romfs (not embedded)"; else cp -cR "$ROMFS" "$A/romfs" || die "copy RomFS"; fi
 # Add-on content: the RomFS extracted from the player's DLC NSPs, one subdirectory per index (the app sets DM_AOC_DIR at launch; the host reports them as owned and mounts them from it)
 if [ -n "$AOC" ] && [ -d "$AOC" ]; then cp -cR "$AOC" "$A/aoc" || die "copy add-on content"; t "add-on content: $(ls "$AOC" | tr '\n' ' ')"; fi
 

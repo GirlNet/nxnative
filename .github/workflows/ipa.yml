@@ -20,6 +20,10 @@ on:
         description: 'upload only the host executable (patch an existing IPA; skips the 2.5 GB IPA artifact)'
         type: boolean
         default: false
+      thin:
+        description: 'thin IPA: do not embed the RomFS (put it in the app Documents/romfs once; installs become seconds)'
+        type: boolean
+        default: false
 
 jobs:
   ipa:
@@ -38,6 +42,7 @@ jobs:
             set -e
             ROOT=$PWD   # build_ipa.sh changes into dm/ios: every path it gets must be absolute
             HOST_ONLY_FLAG=$([ "$HOST_ONLY" = "true" ] && echo 1 || echo 0)
+            THIN_FLAG=$([ "$THIN" = "true" ] && echo 1 || echo 0)
             # the payload travels in four ~650 MB parts: home uploads get reset on longer connections
             for i in 01 02 03 04; do curl -fL --retry 3 -o "payload.part$i" "$PAYLOAD_URL/payload.part$i"; done
             cat payload.part01 payload.part02 payload.part03 payload.part04 > payload.tar.zst
@@ -58,7 +63,7 @@ jobs:
             python3 dm/gfx/tools/c1_guard.py "w/shader/cache/b-$V" "dm/games/$GAME/c1_full.tsv"
             OUT="$OUT_NAME"; [ -n "$OUT" ] || OUT="$(python3 dm/tools/nacp.py w/data/v0/control.nacp).ipa"
             case "$OUT" in /*) ;; *) OUT="$ROOT/$OUT" ;; esac
-            GAME="$GAME" W="$ROOT/w" PATCHED="$ROOT/w/build/patched_v0" ROMFS="$ROOT/w/data/v0/RomFS" MSL_IOS="$ROOT/w/shader/ios" AOC='' FONT_PY=python3 DM_HOST_ONLY="$HOST_ONLY_FLAG" \
+            GAME="$GAME" W="$ROOT/w" PATCHED="$ROOT/w/build/patched_v0" ROMFS="$ROOT/w/data/v0/RomFS" MSL_IOS="$ROOT/w/shader/ios" AOC='' FONT_PY=python3 DM_HOST_ONLY="$HOST_ONLY_FLAG" DM_THIN_IPA="$THIN_FLAG" \
               bash dm/ios/tools/build_ipa.sh "$OUT"
           }
           # on failure, echo the first error lines as annotations: they are readable without sign-in, the full log is not
@@ -75,6 +80,7 @@ jobs:
           GAME: ${{ inputs.game }}
           OUT_NAME: ${{ inputs.out_name }}
           HOST_ONLY: ${{ inputs.host_only }}
+          THIN: ${{ inputs.thin }}
       - uses: actions/upload-artifact@v4
         if: ${{ always() && !inputs.host_only }}
         with:
