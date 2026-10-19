@@ -362,6 +362,8 @@ def build_shaders(py, repo, sh, xlate, env, logs, g):
     n = sum(1 for _ in libs.glob('*_b.metallib')) if libs.is_dir() else 0
     if n == 0: raise BuildError(f'没出 iOS 着色器库 | no iOS shader libraries in {libs}')
     say(f'iOS 着色器库 {n} 个 | {n} iOS shader libraries ({libs})')
+    # build_ipa.sh copies c1_full.tsv and the replay layer trusts it only when its first line names this chain: regenerate it from the MSL the build just wrote (dm/games/README.md step 4.3)
+    run([py, repo / 'dm/gfx/tools/c1_guard.py', sh / 'cache' / f'b-{chain}', g.table('c1_full.tsv')], logs / 'c1_guard.log')
     return ios
 
 
