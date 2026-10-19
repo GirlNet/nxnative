@@ -1527,6 +1527,13 @@ static void tex_evict_unused(uint64_t frame) {
         if (old) { if (g_alias_set) CFSetRemoveValue(g_alias_set, old); defer_obj_release((__bridge id)old); }
     }
     pthread_mutex_unlock(&g_smu);
+    // Cached texture-ID views keep their parent texture alive even after the serial / alias entries are gone; drop them for the affected pools
+    // (views are rebuilt lazily; the registry lock order is g_rmu before g_smu, so this runs outside g_smu).
+    for (int i = 0; i < na; i++) {
+        int dup = 0;
+        for (int j = 0; j < i; j++) if (aks[j].pool == aks[i].pool) dup = 1;
+        if (!dup) treg_drop_pool_views((const void *)(uintptr_t)aks[i].pool);
+    }
     uint64_t before = g_dev.currentAllocatedSize;
     for (int i = 0; i < m; i++) serial_del(sers[i]);
     uint64_t after = g_dev.currentAllocatedSize;
