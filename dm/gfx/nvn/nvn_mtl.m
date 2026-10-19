@@ -2522,6 +2522,13 @@ static MTLSamplerAddressMode wrapm(int w) {
         case 6: return MTLSamplerAddressModeMirrorRepeat; }
     return MTLSamplerAddressModeRepeat;
 }
+// DM_NVN_UNNORM=1: the title's shaders sample with pixel-space coordinates (Maxwell TEX with NDV clear), while Metal samplers default to
+// normalized coordinates; without this flag every lookup lands outside [0,1] and clamps to the (black) border. Opt-in until a profile key exists.
+static int nvn_unnorm_cfg(void) {
+    static int v = -1;
+    if (v < 0) { const char *e = getenv("DM_NVN_UNNORM"); v = e && *e && strcmp(e, "0") != 0; }
+    return v;
+}
 static id<MTLSamplerState> samp_by_id(int sid) {   // Caller holds g_rmu
     if (sid < 0 || sid >= g_nsreg || !g_sreg_ok[sid]) { RED_ONCE(12, "采样器号 %d 未登记", sid); return nil; }
     if (g_sview[sid]) return (__bridge id<MTLSamplerState>)g_sview[sid];
@@ -2536,6 +2543,7 @@ static id<MTLSamplerState> samp_by_id(int sid) {   // Caller holds g_rmu
     if (p.cmp_mode) d.compareFunction = (MTLCompareFunction)(p.cmp_func - 1);
     d.borderColor = p.border[3] > 0.5f ? (p.border[0] > 0.5f ? MTLSamplerBorderColorOpaqueWhite : MTLSamplerBorderColorOpaqueBlack) : MTLSamplerBorderColorTransparentBlack;
     d.supportArgumentBuffers = YES;
+    if (nvn_unnorm_cfg()) d.normalizedCoordinates = NO;
     id<MTLSamplerState> s = [g_dev newSamplerStateWithDescriptor:d];
     if (s) { g_sview[sid] = (void *)CFBridgingRetain(s); g_srid[sid] = s.gpuResourceID._impl; }
     return s;
