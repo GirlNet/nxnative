@@ -138,7 +138,7 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
     _ring[0].hidden = _knob[0].hidden = _rhythm;
     _ring[1].hidden = _knob[1].hidden = !_full || _rhythm;
     _swap.hidden = _swapLabel.hidden = _rhythm;
-    for (int i = 0; i < 5; i++) _rhythmLayer[i].hidden = !_rhythm;
+    for (int i = 0; i < 5; i++) _rhythmLayer[i].hidden = YES;
     _swapLabel.string = _full ? @"3D" : @"2D";
     [CATransaction commit];
 }
