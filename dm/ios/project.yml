@@ -45,6 +45,7 @@ targets:
         GCSupportedGameControllers:
           - ProfileName: ExtendedGamepad
         CADisableMinimumFrameDurationOnPhone: true
+        NitenControllerHaptics: true   # Touchable's controller haptics path uses GameController when a compatible pad is connected
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
           UISceneConfigurations:

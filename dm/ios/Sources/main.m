@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include "game_profile.h"   // game profile constants (the RomFS marker path)
+#include "../../host/ss_haptics.h"
 
 int dm_main(int argc, char **argv);   // dm/host/main.c compiled in with -Dmain=dm_main
 void dm_host_preload_start(int argc, char **argv);
@@ -71,6 +72,7 @@ static void *boot_thread(void *p) {
 void front_ios_boot(void) {   // Called by front_ios.m once the window and Metal view exist
     static int once; if (once++ || !g_boot_ok) return;
     void front_ios_audio_session(void); front_ios_audio_session();   // set a short I/O buffer before the game opens audio output (front_ios.m)
+    ss_haptics_ios_init();   // The audio session must be active before the Core Haptics engine is created
     pthread_attr_t a; pthread_attr_init(&a); pthread_attr_setstacksize(&a, 64u << 20);   // the Switch main thread stack is set by npdm; the host gives plenty
     pthread_t t; pthread_create(&t, &a, boot_thread, NULL); pthread_detach(t);
 }

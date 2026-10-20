@@ -4,7 +4,6 @@
 #include "front.h"
 
 void crash_sample_self(void) {}
-__attribute__((weak)) void dm_haptic_update(float a, float f, float b, float h) { (void)a; (void)f; (void)b; (void)h; }
 void inflate_bench_maybe(void) {}
 void ticks_install(void) {}
 void target_rank_install(void) {}

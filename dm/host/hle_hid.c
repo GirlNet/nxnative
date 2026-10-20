@@ -1,9 +1,9 @@
 // nn::hid (controller): on the real device shared memory is read through the hid service; the host takes the current state written by the front end (Mac keyboard / controller, iOS virtual gamepad / controller).
 // Generic, game-independent version: one standard controller. DM_OPMODE=0 (handheld) → handheld controller (Npad id 0x20); otherwise → 1P full-key controller (id 0).
-// Vibration, six-axis, mouse, keyboard: not provided by the host (device count 0 / not connected); the controller applet reports "1 player, current controller selected".
+// Vibration is mapped to the phone and active controller haptics; six-axis, mouse and keyboard are not provided. The controller applet reports "1 player, current controller selected".
 #include "hle.h"
 #include "dm_input.h"
-#include "../ios/Sources/DmHaptics.h"
+#include "ss_haptics.h"
 #include <stdatomic.h>
 #include <unistd.h>
 #include <strings.h>
@@ -104,7 +104,9 @@ HLE_FORCE("_ZN2nn3hid14InitializeNpadEv", "连 hid 服务；宿主从前端状�
 HLE_FORCE("_ZN2nn3hid22SetSupportedNpadIdTypeEPKjm", "支持的手柄号；宿主固定", void, h_hid_SetIds, const uint32_t *ids, uint64_t n) { (void)ids; (void)n; }
 static uint32_t g_styles_supported = 0xffffffffu;
 HLE_FORCE("_ZN2nn3hid24SetSupportedNpadStyleSetENS_4util10BitFlagSetILi32ENS0_12NpadStyleTagEEE", "支持的手柄样式；宿主记下，按它选报的样式", void, h_hid_SetStyles, uint32_t styles) {
-    if (styles != g_styles_supported) LOG("hid 支持的手柄样式 %#x", styles); g_styles_supported = styles; }
+    if (styles != g_styles_supported) LOG("hid 支持的手柄样式 %#x", styles); g_styles_supported = styles;
+    if (!(style_of(connected_id()) & styles)) ss_haptics_stop();
+}
 HLE_FORCE("_ZN2nn3hid15GetNpadStyleSetERKj", "手柄样式查询；跟 DM_OPMODE 走", uint32_t, h_hid_GetStyle, const uint32_t *id) { return style_of(*id); }
 HLE_FORCE("_ZN2nn3hid13GetNpadStatesEPNS0_16NpadFullKeyStateEiRKj", "全键手柄状态", int, h_hid_StatesFullKey, NpadState *s, int n, const uint32_t *id) { return states(s, n, *id, STYLE_FULLKEY); }
 HLE_FORCE("_ZN2nn3hid13GetNpadStatesEPNS0_17NpadHandheldStateEiRKj", "掌机手柄状态", int, h_hid_StatesHandheld, NpadState *s, int n, const uint32_t *id) { return states(s, n, *id, STYLE_HANDHELD); }
@@ -128,26 +130,25 @@ HLE_FORCE("_ZN2nn3hid23GetSixAxisSensorHandlesEPNS0_19SixAxisSensorHandleEiRKjNS
 HLE_FORCE("_ZN2nn3hid18StartSixAxisSensorERKNS0_19SixAxisSensorHandleE", "六轴；宿主不提供", void, h_hid_SixStart, const uint32_t *h) { (void)h; }
 HLE_FORCE("_ZN2nn3hid22GetSixAxisSensorStatesEPNS0_18SixAxisSensorStateEiRKNS0_19SixAxisSensorHandleE", "六轴状态；宿主不提供（0 条）",
           int, h_hid_SixStates, void *out, int n, const uint32_t *h) { (void)out; (void)n; (void)h; return 0; }
-// Vibration: one handheld actuator or two Joy-Con actuators, mixed into the phone/controller haptics.
-HLE_FORCE("_ZN2nn3hid20IsVibrationPermittedEv", "震动许可；宿主支持", unsigned, h_hid_VibPermit, void) { return 1; }
-HLE_FORCE("_ZN2nn3hid25GetVibrationDeviceHandlesEPNS0_21VibrationDeviceHandleEiRKjNS_4util10BitFlagSetILi32ENS0_12NpadStyleTagEEE", "震动设备：手持 1 个 / 双 Joy-Con 2 个",
-          int, h_hid_VibHandles, uint32_t *h, int n, const uint32_t *id, uint32_t style) { (void)style; int k = n < 2 ? n : 2; for (int i = 0; i < k; i++) h[i] = (*id << 8) | (uint32_t)i; return k; }
-HLE_FORCE("_ZN2nn3hid25InitializeVibrationDeviceERKNS0_21VibrationDeviceHandleE", "震动；宿主不支持", void, h_hid_InitVib, const void *h) { (void)h; }
-HLE_FORCE("_ZN2nn3hid18SendVibrationValueERKNS0_21VibrationDeviceHandleERKNS0_14VibrationValueE", "震动 → Core Haptics", void, h_hid_SendVib, const void *h, const float *v) {
-    (void)h; if (v) dm_haptic_update(v[0], v[1], v[2], v[3]);
+// Vibration: map the game's two controller motor channels to Touchable's shared phone/controller Core Haptics mixer.
+HLE_FORCE("_ZN2nn3hid20IsVibrationPermittedEv", "震动许可；跟随手机和手柄能力", unsigned, h_hid_VibPermit, void) { return ss_haptics_status().supported; }
+HLE_FORCE("_ZN2nn3hid25GetVibrationDeviceHandlesEPNS0_21VibrationDeviceHandleEiRKjNS_4util10BitFlagSetILi32ENS0_12NpadStyleTagEEE", "震动设备：左右两个马达通道",
+          int, h_hid_VibHandles, uint32_t *h, int n, const uint32_t *id, uint32_t style) {
+    if (!h || !id || n <= 0 || !ss_haptics_status().supported || !(style_of(*id) & style)) return 0;
+    int k = n < 2 ? n : 2;
+    dm_guest_write_prepare(h, (size_t)k * sizeof(*h));
+    h[0] = SS_VIBRATION_LEFT;
+    if (k > 1) h[1] = SS_VIBRATION_RIGHT;
+    return k;
+}
+HLE_FORCE("_ZN2nn3hid25InitializeVibrationDeviceERKNS0_21VibrationDeviceHandleE", "初始化震动设备", void, h_hid_InitVib, const uint32_t *h) { if (h) ss_haptics_initialize(*h); }
+HLE_FORCE("_ZN2nn3hid18SendVibrationValueERKNS0_21VibrationDeviceHandleERKNS0_14VibrationValueE", "震动 → Core Haptics", void, h_hid_SendVib, const uint32_t *h, const ss_vibration_value *v) {
+    if (h && v) ss_haptics_send(*h, v);
 }
 // Values queued by the vibration graph (VibrationNode::Update) reach it from the sdk's internal FlushEnqueuedVibrationValues through the PLT, into the hid service proxy (sm abort). Metroid Dread
 // sets handles on its VibrationTargets even when the host reports 0 devices, so values get queued; return success and the flush clears its count as usual
-HLE_FORCE("_ZN2nn3hid6detail19SendVibrationValuesEPKNS0_21VibrationDeviceHandleEPKNS0_14VibrationValueEi", "震动（批量）→ Core Haptics", Result, h_hid_SendVibs, const void *h, const float *v, int n) {
-    (void)h;
-    if (v && n > 0) {
-        float la = 0, lf = 160, ha = 0, hf = 160;
-        for (int i = 0; i < n; i++) {
-            if (v[4*i] > la) { la = v[4*i]; lf = v[4*i+1]; }
-            if (v[4*i+2] > ha) { ha = v[4*i+2]; hf = v[4*i+3]; }
-        }
-        dm_haptic_update(la, lf, ha, hf);
-    }
+HLE_FORCE("_ZN2nn3hid6detail19SendVibrationValuesEPKNS0_21VibrationDeviceHandleEPKNS0_14VibrationValueEi", "震动（批量）→ Core Haptics", Result, h_hid_SendVibs, const uint32_t *h, const ss_vibration_value *v, int n) {
+    if (h && v && n > 0) for (int i = 0; i < n; i++) ss_haptics_send(h[i], &v[i]);
     return 0;
 }
 // Mouse / keyboard: not connected
@@ -223,6 +224,16 @@ HLE_FORCE("_ZN2nn3hid32GetSixAxisSensorFusionParametersEPfS1_RKNS0_19SixAxisSens
 HLE_FORCE("_ZN2nn3hid32SetSixAxisSensorFusionParametersERKNS0_19SixAxisSensorHandleEff", "六轴融合参数；宿主忽略", void, h_hid_FusionSet, const uint32_t *h, float a, float b) { (void)h; (void)a; (void)b; }
 HLE_FORCE("_ZN2nn3hid34ResetSixAxisSensorFusionParametersERKNS0_19SixAxisSensorHandleE", "六轴融合参数；宿主忽略", void, h_hid_FusionReset, const uint32_t *h) { (void)h; }
 HLE_FORCE("_ZN2nn3hid41IsFirmwareUpdateAvailableForSixAxisSensorERKNS0_19SixAxisSensorHandleE", "六轴固件更新：无", unsigned, h_hid_SixFw, const uint32_t *h) { (void)h; return 0; }
-// Vibration device info / actual value: no device, zeroed
-HLE_FORCE("_ZN2nn3hid22GetVibrationDeviceInfoEPNS0_19VibrationDeviceInfoERKNS0_21VibrationDeviceHandleE", "震动设备信息：无", void, h_hid_VibInfo, uint32_t *info, const void *h) { (void)h; info[0] = 0; info[1] = 0; }
-HLE_FORCE("_ZN2nn3hid23GetActualVibrationValueEPNS0_14VibrationValueERKNS0_21VibrationDeviceHandleE", "实际震动值：0", void, h_hid_VibActual, float *v, const void *h) { (void)h; memset(v, 0, 16); }
+// Vibration device info / accepted value: report the two controller motor channels.
+HLE_FORCE("_ZN2nn3hid22GetVibrationDeviceInfoEPNS0_19VibrationDeviceInfoERKNS0_21VibrationDeviceHandleE", "震动设备信息：左右马达", void, h_hid_VibInfo, ss_vibration_info *info, const uint32_t *h) {
+    if (!info) return;
+    dm_guest_write_prepare(info, sizeof(*info));
+    *info = (ss_vibration_info){0, 0};
+    if (h && (*h == SS_VIBRATION_LEFT || *h == SS_VIBRATION_RIGHT))
+        *info = (ss_vibration_info){1, *h == SS_VIBRATION_LEFT ? 1 : 2};
+}
+HLE_FORCE("_ZN2nn3hid23GetActualVibrationValueEPNS0_14VibrationValueERKNS0_21VibrationDeviceHandleE", "实际震动值", void, h_hid_VibActual, ss_vibration_value *v, const uint32_t *h) {
+    if (!v) return;
+    dm_guest_write_prepare(v, sizeof(*v));
+    *v = ss_haptics_actual(h ? *h : 0);
+}
