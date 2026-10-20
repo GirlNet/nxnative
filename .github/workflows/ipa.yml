@@ -72,8 +72,10 @@ jobs:
               MSL_PATH="$ROOT/w/shader/ios"
             fi
             # build_ipa.sh copies c1_full.tsv and the replay layer trusts it only when its first line names this chain
-            V=$(sed -n 's/^#define DMSH_CHAIN "\(.*\)"/\1/p' "dm/games/$GAME/dmsh_chain.h")
-            python3 dm/gfx/tools/c1_guard.py "w/shader/cache/b-$V" "dm/games/$GAME/c1_full.tsv"
+            if [ "$HOST_ONLY" != "true" ]; then
+              V=$(sed -n 's/^#define DMSH_CHAIN "\(.*\)"/\1/p' "dm/games/$GAME/dmsh_chain.h")
+              python3 dm/gfx/tools/c1_guard.py "w/shader/cache/b-$V" "dm/games/$GAME/c1_full.tsv"
+            fi
             OUT="$OUT_NAME"; [ -n "$OUT" ] || OUT="$(python3 dm/tools/nacp.py w/data/v0/control.nacp).ipa"
             case "$OUT" in /*) ;; *) OUT="$ROOT/$OUT" ;; esac
             GAME="$GAME" W="$ROOT/w" PATCHED="$ROOT/w/build/patched_v0" ROMFS="$ROOT/w/data/v0/RomFS" MSL_IOS="$MSL_PATH" AOC='' FONT_PY=python3 DM_HOST_ONLY="$HOST_ONLY_FLAG" DM_THIN_IPA="$THIN_FLAG" \
