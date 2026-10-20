@@ -231,9 +231,11 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
     BOOL directional = layout == 0 || (layout == 1 && first >= B_LEFT && first <= B_DOWN);
     CGRect dpadArea = self.corner;
     CGRect touchArea = CGRectMake(CGRectGetMinX(dpadArea) + 8*u, CGRectGetMidY(s), 190*u, CGRectGetHeight(s) * 0.38);
+    CGRect touchHitArea = touchArea;
+    touchHitArea.origin.y -= 48*u; touchHitArea.size.height += 48*u;   // a small upward slop keeps the pause menu usable
     CGFloat dx = p.x - CGRectGetMidX(touchArea);
     CGFloat dy = p.y - (CGRectGetMinY(touchArea) + CGRectGetHeight(touchArea) * 0.72);
-    if (directional && (!CGRectContainsPoint(touchArea, p) || hypot(dx, dy) < 12*u)) return 0;
+    if (directional && (!CGRectContainsPoint(touchHitArea, p) || hypot(dx, dy) < 12*u)) return 0;
     if (layout == 1) return first < 64 ? 1ull << first : 0;
     if (layout == 2) return 1ull << (p.x < CGRectGetMidX(s) - CGRectGetWidth(s) * 0.22 ? first : second);
     if (layout == 0) {
