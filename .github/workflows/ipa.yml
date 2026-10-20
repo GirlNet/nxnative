@@ -27,7 +27,7 @@ on:
 
 jobs:
   ipa:
-    runs-on: macos-26-intel
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - name: Tools
@@ -61,9 +61,6 @@ jobs:
               : > "$ROOT/hostonly-msl/b-$V/placeholder_b.metallib"
               MSL_PATH="$ROOT/hostonly-msl"
             else
-              # The checked-in translator is arm64; the Intel macOS 26 runner needs an x64 build from the same sources.
-              dotnet publish dm/gfx/tools/dmsh_xlate/dmsh_xlate.csproj -c Release -r osx-x64 --self-contained true -o "$ROOT/xlate-x64"
-              export XLATE="$ROOT/xlate-x64/dmsh_xlate"
               # the runner's Metal / spirv-cross differ from the committed tool lock: re-key the chain to the runner's tools
               DM_GAME="$GAME" python3 dm/gfx/tools/dmsh_chain.py --update-lock
               DM_GAME="$GAME" python3 dm/gfx/tools/dmsh_chain.py --header
