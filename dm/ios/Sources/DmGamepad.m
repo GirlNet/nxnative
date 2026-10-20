@@ -11,7 +11,6 @@
 #import <GameController/GameController.h>
 #import <CoreText/CoreText.h>
 #include <pthread.h>
-#include <stdio.h>
 #include <string.h>
 #include "dm_input.h"
 #include "game_profile.h"
@@ -22,7 +21,6 @@ enum { C_NONE = 0, C_STICK, C_DPAD, C_FACE, C_BTN, C_SWAP };   // which control 
 
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
 static uint64_t g_touch_btn, g_pad_btn;
-static int g_rhythm_touch_logs;
 static int32_t g_touch_lx, g_touch_ly, g_touch_rx, g_touch_ry, g_pad_lx, g_pad_ly, g_pad_rx, g_pad_ry;
 static int tilted(int32_t x, int32_t y) { return (int64_t)x * x + (int64_t)y * y > (int64_t)4000 * 4000; }
 static void publish(void) {
@@ -155,8 +153,6 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
     uint64_t h = dm_rhythm_touch_get();
     if (h == _lastHint) return;
     _lastHint = h;
-    fprintf(stderr, "RH hint=%#llx layout=%d first=%d second=%d\n", (unsigned long long)h,
-            (int)(h & 0xff), (int)(h >> 8 & 0xff), (int)(h >> 16 & 0xff));
     [self applyLayout];
     [self setNeedsLayout];
 }
@@ -292,11 +288,7 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
         CGPoint p = [t locationInView:self]; int hit = [self btnAt:p];
         if (_rhythm) {
             uint64_t bits = [self rhythmBitsAt:p];
-            if (g_rhythm_touch_logs++ < 160)
-                fprintf(stderr, "RH touch %.1f,%.1f hint=%#llx bits=%#llx\n", p.x, p.y,
-                        (unsigned long long)dm_rhythm_touch_get(), (unsigned long long)bits);
-            uint64_t side = p.x < CGRectGetMidX(self.safe) ? 1ull << 8 : 0;   // a left-side touch never turns into A by crossing the divider
-            [_owner setObject:@(C_FACE | side) forKey:t]; [_faceOf setObject:@(bits) forKey:t];
+            if (bits) { [_owner setObject:@(C_FACE) forKey:t]; [_faceOf setObject:@(bits) forKey:t]; }
             continue;
         }
         if (hit >= 0) { [_owner setObject:@(C_BTN | (uint64_t)hit << 8) forKey:t]; continue; }
@@ -316,18 +308,7 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
 - (void)touchesMoved:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
     for (UITouch *t in ts) {
         uint64_t v = [_owner objectForKey:t].unsignedLongLongValue; int c = (int)(v & 0xff); CGPoint p = [t locationInView:self];
-        if (_rhythm) {
-            if ([_owner objectForKey:t]) {
-                uint64_t bits = [self rhythmBitsAt:p];
-                if ((v & (1ull << 8)) && bits == 1ull << B_A) bits = 0;
-                uint64_t old = [[_faceOf objectForKey:t] unsignedLongLongValue];
-                if (bits != old && g_rhythm_touch_logs++ < 160)
-                    fprintf(stderr, "RH move %.1f,%.1f hint=%#llx bits=%#llx\n", p.x, p.y,
-                            (unsigned long long)dm_rhythm_touch_get(), (unsigned long long)bits);
-                [_faceOf setObject:@(bits) forKey:t];
-            }
-            continue;
-        }
+        if (_rhythm) { if ([_owner objectForKey:t]) [_faceOf setObject:@([self rhythmBitsAt:p]) forKey:t]; continue; }
         if (c == C_FACE) [_faceOf setObject:@([self faceAt:p]) forKey:t];
         else if (c == C_STICK) _stickNow[v >> 8] = p;
     }
