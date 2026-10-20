@@ -364,10 +364,14 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
         _rhythmLayer[3].path = circlePath(CGPointMake(CGRectGetMinX(s)+48*u, top), 24*u);    // Y
         _rhythmLayer[4].path = circlePath(CGPointMake(CGRectGetMinX(s)+116*u, top), 24*u);   // −
         _rhythmLayer[5].path = circlePath(CGPointMake(CGRectGetMaxX(s)-48*u, top), 24*u);    // +
-        CGFloat cx = CGRectGetMinX(s) + 74*u, cy = CGRectGetMaxY(s) - 74*u, d = 54*u;
+        CGFloat cx = CGRectGetMinX(s) + 74*u, cy = CGRectGetMaxY(s) - 74*u, d = 46*u;
         CGPoint pp[4] = {{cx-d,cy},{cx,cy-d},{cx+d,cy},{cx,cy+d}};
-        for (int i = 0; i < 4; i++) _rhythmLayer[6+i].path = circlePath(pp[i], 25*u);
-        for (int i = 0; i < 10; i++) _rhythmText[i].frame = _rhythmLayer[i].path ? CGPathGetPathBoundingBox(_rhythmLayer[i].path) : CGRectZero;
+        for (int i = 0; i < 4; i++) _rhythmLayer[6+i].path = circlePath(pp[i], 22*u);
+        for (int i = 0; i < 10; i++) {
+            CGRect box = _rhythmLayer[i].path ? CGPathGetPathBoundingBox(_rhythmLayer[i].path) : CGRectZero;
+            CGFloat h = 22 * u;
+            _rhythmText[i].frame = CGRectMake(box.origin.x, box.origin.y + (box.size.height - h) / 2, box.size.width, h);
+        }
         return;
     }
     CGFloat u = self.u;
