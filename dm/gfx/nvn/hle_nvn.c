@@ -241,13 +241,6 @@ NVN(nvnTextureInitialize, NVNboolean, NVNtexture *t, const NVNtextureBuilder *b)
     // Diagnostic / per-game override for CPU-written textures whose block-linear writer uses a different tile height than the automatic
     // (deko3d) layout: DM_NVN_TILE_H=0..4 forces the GOB block height for textures without a packaged layout.
     if (!s->has_layout) {
-        // Rhythm Heaven's texture decompressor writes its short BC7 UI / font atlases with a 2-GOB block height, whatever their width.
-        // The automatic (deko3d) layout picks it from the height and tears the atlases; the profile's tile_h_bc7 carries the writer's constant.
-        if (DM_GAME_TILE_H_BC7 >= 0 && (o->d.format == 0x4d || o->d.format == 0x4e) &&
-            (!DM_GAME_TILE_H_BC7_MAX_H || o->d.height <= DM_GAME_TILE_H_BC7_MAX_H)) {
-            o->d.pkg_block_h = (uint32_t)DM_GAME_TILE_H_BC7 + 1;
-            static int n; if (n++ < 8) LOG("[nvn] BC7 贴图 %ux%u 用游戏档案的块高 tileH=%d", o->d.width, o->d.height, DM_GAME_TILE_H_BC7);
-        }
         const char *th = getenv("DM_NVN_TILE_H");
         if (!th || !*th) th = DM_GAME_TILE_H;
         if (th && *th) {
