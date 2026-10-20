@@ -237,16 +237,10 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
     int direction = [self rhythmDirectionAt:p];
     if (layout == 1) {
         if (first < B_LEFT || first > B_DOWN) return first < 64 ? 1ull << first : 0;
-        return direction == first ? 1ull << first : 0;
+        return 1ull << direction;
     }
     if (layout == 2) return 1ull << (p.x < CGRectGetMidX(s) - CGRectGetWidth(s) * 0.22 ? first : second);
-    if (layout == 0) {
-        unsigned mask = (unsigned)first;
-        if (!mask) mask = 15;
-        static const unsigned dirBit[4] = {1, 2, 4, 8};   // left up right down
-        int dir = direction - B_LEFT;
-        return (mask & dirBit[dir]) ? 1ull << direction : 0;
-    }
+    if (layout == 0) return 1ull << direction;
     return 1ull << direction;
 }
 - (CGPoint)knobOffset:(int)i {   // knob offset from the ring centre (clamped to the ring)
