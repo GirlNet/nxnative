@@ -14,15 +14,11 @@
 #include <string.h>
 #include "dm_input.h"
 #include "game_profile.h"
-extern uint64_t dm_rhythm_touch_get(void);
-
 enum { B_A = 0, B_B, B_X, B_Y, B_LS, B_RS, B_L, B_R, B_ZL, B_ZR, B_PLUS, B_MINUS, B_LEFT, B_UP, B_RIGHT, B_DOWN, B_N };
 enum { C_NONE = 0, C_STICK, C_DPAD, C_FACE, C_BTN, C_SWAP };   // which control a touch holds
 
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
 static uint64_t g_touch_btn, g_pad_btn;
-static uint64_t g_last_buttons;
-static BOOL g_rhythm_paused;
 static int32_t g_touch_lx, g_touch_ly, g_touch_rx, g_touch_ry, g_pad_lx, g_pad_ly, g_pad_rx, g_pad_ry;
 static int tilted(int32_t x, int32_t y) { return (int64_t)x * x + (int64_t)y * y > (int64_t)4000 * 4000; }
 static void publish(void) {
@@ -30,11 +26,7 @@ static void publish(void) {
     int32_t lx = g_touch_lx, ly = g_touch_ly, rx = g_touch_rx, ry = g_touch_ry;
     if (tilted(g_pad_lx, g_pad_ly)) { lx = g_pad_lx; ly = g_pad_ly; }   // a tilted physical stick wins
     if (tilted(g_pad_rx, g_pad_ry)) { rx = g_pad_rx; ry = g_pad_ry; }
-    uint64_t buttons = g_touch_btn | g_pad_btn, pressed = buttons & ~g_last_buttons;
-    if (pressed & (1ull << B_PLUS)) g_rhythm_paused = !g_rhythm_paused;
-    else if (pressed & ((1ull << B_A) | (1ull << B_B))) g_rhythm_paused = NO;
-    g_last_buttons = buttons;
-    dm_input_set(buttons, lx, ly, rx, ry);
+    dm_input_set(g_touch_btn | g_pad_btn, lx, ly, rx, ry);
     pthread_mutex_unlock(&g_mu);
 }
 
@@ -77,8 +69,6 @@ static __weak DmGamepad *g_view;
     BOOL _sticksShown;                             // a stick was held at the last refresh
     BOOL _full;                                    // the 3D layout is current
     BOOL _rhythm;
-    uint64_t _lastHint;
-    CADisplayLink *_rhythmLink;
     CAShapeLayer *_rhythmLayer[10]; CATextLayer *_rhythmText[10];
 }
 
@@ -130,11 +120,6 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
             _rhythmText[i].fontSize = 18;
             _rhythmText[i].foregroundColor = [UIColor colorWithWhite:1 alpha:0.28].CGColor;
         }
-        if (_rhythm) {
-            _rhythmLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(pollRhythmHint)];
-            _rhythmLink.preferredFrameRateRange = CAFrameRateRangeMake(30, 60, 60);
-            [_rhythmLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
-        }
         NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
         _full = saved ? saved.boolValue : DM_GAME_PAD_FULL;
         [self applyLayout];
@@ -154,14 +139,6 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
     for (int i = 0; i < 10; i++) _rhythmLayer[i].hidden = !_rhythm || i < 2 || i >= 6;
     _swapLabel.string = _full ? @"3D" : @"2D";
     [CATransaction commit];
-}
-- (void)pollRhythmHint {
-    uint64_t h = dm_rhythm_touch_get();
-    if ((int)(h & 0xff) == 3) g_rhythm_paused = NO;
-    if (h == _lastHint) return;
-    _lastHint = h;
-    [self applyLayout];
-    [self setNeedsLayout];
 }
 - (void)setFull:(BOOL)full {   // switch layouts: release every touch first (no key stays held), save, lay out again
     if (full == _full) return;
@@ -231,8 +208,6 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
     return dy < 0 ? B_UP : B_DOWN;
 }
 - (uint64_t)rhythmBitsAt:(CGPoint)p {
-    uint64_t h = dm_rhythm_touch_get();
-    int layout = (int)(h & 0xff), first = (int)(h >> 8 & 0xff), second = (int)(h >> 16 & 0xff);
     CGRect s = self.safe; CGFloat u = self.u;
     if (p.y < CGRectGetMinY(s) + 62 * u) {
         if (p.x < CGRectGetMinX(s) + 80 * u) return 1ull << B_Y;
@@ -241,15 +216,7 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
         if (p.x >= CGRectGetMaxX(s) - 80 * u) return 1ull << B_B;
     }
     if (p.x >= CGRectGetMidX(s)) return 1ull << B_A;
-    int direction = [self rhythmDirectionAt:p];
-    if (g_rhythm_paused) return 1ull << direction;
-    if (layout == 1) {
-        if (first < B_LEFT || first > B_DOWN) return first < 64 ? 1ull << first : 0;
-        return 1ull << direction;
-    }
-    if (layout == 2) return 1ull << (p.x < CGRectGetMidX(s) - CGRectGetWidth(s) * 0.22 ? first : second);
-    if (layout == 0) return 1ull << direction;
-    return 1ull << direction;
+    return 1ull << [self rhythmDirectionAt:p];
 }
 - (CGPoint)knobOffset:(int)i {   // knob offset from the ring centre (clamped to the ring)
     if (!_stick[i]) return CGPointZero;
