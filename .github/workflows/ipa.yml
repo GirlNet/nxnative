@@ -27,12 +27,12 @@ on:
 
 jobs:
   ipa:
-    runs-on: macos-15
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
       - name: Tools
         run: |
-          sudo xcode-select -s /Applications/Xcode_26.3.app
+          sudo xcode-select -s /Applications/Xcode_27.app
           xcodebuild -version
           brew install xcodegen zstd spirv-cross
           command -v dotnet >/dev/null || brew install --cask dotnet-sdk
