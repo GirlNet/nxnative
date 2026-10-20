@@ -5,6 +5,7 @@
 // Paths look like "rom:/data/x". FileHandle / DirectoryHandle are 8 bytes passed by value, here they store the host fd / DIR*.
 // Struct layout follows the public Horizon ABI: DirectoryEntry = {char name[0x301], pad[3], s8 type, pad[3], s64 size} (0x310 bytes).
 #include "hle.h"
+#include "rh_touch.h"
 #include "front.h"
 #include <dirent.h>
 #include <errno.h>
@@ -588,6 +589,7 @@ ssize_t dm_data_pread(int fd, void *buf, size_t n, off_t off) {   // Same semant
     return (ssize_t)done;
 }
 HLE_FORCE("_ZN2nn2fs8OpenFileEPNS0_10FileHandleEPKci", "fsp-srv → open(2)", Result, h_fs_OpenFile, uint64_t *out, const char *path, int mode) {
+    dm_rhythm_touch_note_path(path);
     HP(path);
     if (mode & (MODE_WRITE | MODE_APPEND)) RW();
     int fd = open(hp, (mode & (MODE_WRITE | MODE_APPEND)) ? ((mode & MODE_READ) ? O_RDWR : O_WRONLY) : O_RDONLY);

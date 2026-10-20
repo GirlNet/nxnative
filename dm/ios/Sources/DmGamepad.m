@@ -11,8 +11,10 @@
 #import <GameController/GameController.h>
 #import <CoreText/CoreText.h>
 #include <pthread.h>
+#include <string.h>
 #include "dm_input.h"
 #include "game_profile.h"
+extern uint64_t dm_rhythm_touch_get(void);
 
 enum { B_A = 0, B_B, B_X, B_Y, B_LS, B_RS, B_L, B_R, B_ZL, B_ZR, B_PLUS, B_MINUS, B_LEFT, B_UP, B_RIGHT, B_DOWN, B_N };
 enum { C_NONE = 0, C_STICK, C_DPAD, C_FACE, C_BTN, C_SWAP };   // which control a touch holds
@@ -52,6 +54,7 @@ static const CGFloat
     K_CLICK_X = 102, K_CLICK_R = 17;                // L3 / R3: centre from the outer edge (level with ZL / ZR), radius
 static const int k_btns[] = {B_ZL, B_L, B_ZR, B_R, B_MINUS, B_PLUS, B_LS, B_RS};   // keys locked at touch-down (L3 / R3 only in the 3D layout)
 static NSString *const k_layout_key = @"DmPadLayout";   // NSUserDefaults: 1 = 3D, 0 = 2D
+static CGPathRef circlePath(CGPoint c, CGFloat r);
 
 @interface DmGamepad : UIView
 @end
@@ -67,6 +70,8 @@ static __weak DmGamepad *g_view;
     CAShapeLayer *_swap; CATextLayer *_swapLabel; BOOL _swapHeld;
     BOOL _sticksShown;                             // a stick was held at the last refresh
     BOOL _full;                                    // the 3D layout is current
+    BOOL _rhythm;
+    CAShapeLayer *_rhythmLayer[5]; CATextLayer *_rhythmText[5];
 }
 
 static UIColor *k_idle, *k_on, *k_line, *k_ringFill, *k_text, *k_textOn;
@@ -105,6 +110,9 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
             if (names[b]) _label[b] = label(_key[b], names[b]);   // the D-pad arms carry no label
         }
         _swap = shape(self.layer); _swapLabel = label(_swap, @"");
+        _rhythm = !strcmp(DM_GAME_ID, "0100D9F01D474000");
+        static NSString *const rhythmNames[5] = {@"LEFT", @"A", @"Y", @"−", @"+"};
+        for (int i = 0; i < 5; i++) { _rhythmLayer[i] = shape(self.layer); _rhythmText[i] = label(_rhythmLayer[i], rhythmNames[i]); }
         NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
         _full = saved ? saved.boolValue : DM_GAME_PAD_FULL;
         [self applyLayout];
@@ -117,8 +125,11 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
 }
 - (void)applyLayout {   // show / hide the controls for the current layout
     [CATransaction begin]; [CATransaction setDisableActions:YES];
-    for (int b = 0; b < B_N; b++) _key[b].hidden = fullOnly(b) && !_full;
-    _ring[1].hidden = _knob[1].hidden = !_full;
+    for (int b = 0; b < B_N; b++) _key[b].hidden = _rhythm || (fullOnly(b) && !_full);
+    _ring[0].hidden = _knob[0].hidden = _rhythm;
+    _ring[1].hidden = _knob[1].hidden = !_full || _rhythm;
+    _swap.hidden = _swapLabel.hidden = _rhythm;
+    for (int i = 0; i < 5; i++) _rhythmLayer[i].hidden = !_rhythm;
     _swapLabel.string = _full ? @"3D" : @"2D";
     [CATransaction commit];
 }
@@ -183,6 +194,31 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
     if (a < -22.5 && a > -157.5) m |= 1ull << B_DOWN;
     return m;
 }
+- (uint64_t)rhythmBitsAt:(CGPoint)p {
+    uint64_t h = dm_rhythm_touch_get();
+    int layout = (int)(h & 0xff), first = (int)(h >> 8 & 0xff), second = (int)(h >> 16 & 0xff);
+    CGRect s = self.safe; CGFloat u = self.u;
+    if (p.y < CGRectGetMinY(s) + 62 * u) {
+        if (p.x < CGRectGetMinX(s) + 88 * u) return 1ull << B_Y;
+        if (p.x > CGRectGetMidX(s) + 25 * u && p.x < CGRectGetMidX(s) + 90 * u) return 1ull << B_PLUS;
+        if (p.x < CGRectGetMidX(s) - 25 * u && p.x > CGRectGetMidX(s) - 90 * u) return 1ull << B_MINUS;
+    }
+    if (p.x >= CGRectGetMidX(s)) return 1ull << B_A;
+    if (layout == 1) return first < 64 ? 1ull << first : 0;
+    if (layout == 2) return 1ull << (p.x < CGRectGetMidX(s) - CGRectGetWidth(s) * 0.22 ? first : second);
+    CGFloat dx = p.x - CGRectGetMinX(s), dy = p.y - CGRectGetMidY(s);
+    if (layout == 0) {
+        unsigned mask = (unsigned)first;
+        if (!mask) mask = 15;
+        if (dx < CGRectGetWidth(s) * 0.16 && (mask & 1)) return 1ull << B_LEFT;
+        if (dx > CGRectGetWidth(s) * 0.30 && (mask & 4)) return 1ull << B_RIGHT;
+        return dy < 0 ? ((mask & 2) ? 1ull << B_UP : 0) : ((mask & 8) ? 1ull << B_DOWN : 0);
+    }
+    // menu: small left D-pad
+    if (dx < CGRectGetWidth(s) * 0.16) return 1ull << B_LEFT;
+    if (dx > CGRectGetWidth(s) * 0.30) return 1ull << B_RIGHT;
+    return dy < 0 ? 1ull << B_UP : 1ull << B_DOWN;
+}
 - (CGPoint)knobOffset:(int)i {   // knob offset from the ring centre (clamped to the ring)
     if (!_stick[i]) return CGPointZero;
     CGPoint h = [self stickHome:i]; CGFloat dx = _stickNow[i].x - h.x, dy = _stickNow[i].y - h.y, d = hypot(dx, dy), R = [self stickR:i];
@@ -218,6 +254,11 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
 - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
     for (UITouch *t in ts) {
         CGPoint p = [t locationInView:self]; int hit = [self btnAt:p];
+        if (_rhythm) {
+            uint64_t bits = [self rhythmBitsAt:p];
+            if (bits) { [_owner setObject:@(C_FACE) forKey:t]; [_faceOf setObject:@(bits) forKey:t]; }
+            continue;
+        }
         if (hit >= 0) { [_owner setObject:@(C_BTN | (uint64_t)hit << 8) forKey:t]; continue; }
         if ([self inSwap:p]) { [_owner setObject:@(C_SWAP) forKey:t]; continue; }
         // diamond, D-pad, the two sticks: take the one with the smallest distance / grab radius, if it is <= 1
@@ -235,6 +276,7 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
 - (void)touchesMoved:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
     for (UITouch *t in ts) {
         uint64_t v = [_owner objectForKey:t].unsignedLongLongValue; int c = (int)(v & 0xff); CGPoint p = [t locationInView:self];
+        if (_rhythm) { if ([_owner objectForKey:t]) [_faceOf setObject:@([self rhythmBitsAt:p]) forKey:t]; continue; }
         if (c == C_FACE) [_faceOf setObject:@([self faceAt:p]) forKey:t];
         else if (c == C_STICK) _stickNow[v >> 8] = p;
     }
@@ -285,6 +327,17 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
 
 - (void)layoutSubviews {
     [super layoutSubviews];
+    if (_rhythm) {
+        CGRect s = self.safe; CGFloat u = self.u;
+        CGFloat top = CGRectGetMinY(s) + 30 * u;
+        _rhythmLayer[0].path = CGPathCreateWithRoundedRect(CGRectMake(CGRectGetMinX(s)+12*u, CGRectGetMinY(s)+80*u, CGRectGetWidth(s)*0.42, CGRectGetHeight(s)-100*u), 24*u, 24*u, NULL);
+        _rhythmLayer[1].path = CGPathCreateWithRoundedRect(CGRectMake(CGRectGetMidX(s)+8*u, CGRectGetMinY(s)+80*u, CGRectGetWidth(s)*0.46, CGRectGetHeight(s)-100*u), 32*u, 32*u, NULL);
+        _rhythmLayer[2].path = circlePath(CGPointMake(CGRectGetMinX(s)+88*u, top), 28*u);
+        _rhythmLayer[3].path = circlePath(CGPointMake(CGRectGetMidX(s)-58*u, top), 24*u);
+        _rhythmLayer[4].path = circlePath(CGPointMake(CGRectGetMidX(s)+58*u, top), 24*u);
+        for (int i = 0; i < 5; i++) _rhythmText[i].frame = _rhythmLayer[i].path ? CGPathGetPathBoundingBox(_rhythmLayer[i].path) : CGRectZero;
+        return;
+    }
     CGFloat u = self.u;
     [CATransaction begin]; [CATransaction setDisableActions:YES];
     for (int b = B_A; b <= B_Y; b++) { CGPoint c = [self facePos:b]; setPath(_key[b], circlePath(c, self.faceR)); placeLabel(_label[b], c, 20 * u); }

@@ -3,6 +3,7 @@
 // Vibration, six-axis, mouse, keyboard: not provided by the host (device count 0 / not connected); the controller applet reports "1 player, current controller selected".
 #include "hle.h"
 #include "dm_input.h"
+#include "../ios/Sources/DmHaptics.h"
 #include <stdatomic.h>
 #include <unistd.h>
 #include <strings.h>
@@ -127,15 +128,28 @@ HLE_FORCE("_ZN2nn3hid23GetSixAxisSensorHandlesEPNS0_19SixAxisSensorHandleEiRKjNS
 HLE_FORCE("_ZN2nn3hid18StartSixAxisSensorERKNS0_19SixAxisSensorHandleE", "六轴；宿主不提供", void, h_hid_SixStart, const uint32_t *h) { (void)h; }
 HLE_FORCE("_ZN2nn3hid22GetSixAxisSensorStatesEPNS0_18SixAxisSensorStateEiRKNS0_19SixAxisSensorHandleE", "六轴状态；宿主不提供（0 条）",
           int, h_hid_SixStates, void *out, int n, const uint32_t *h) { (void)out; (void)n; (void)h; return 0; }
-// Vibration: no devices
-HLE_FORCE("_ZN2nn3hid20IsVibrationPermittedEv", "震动许可；宿主不支持", unsigned, h_hid_VibPermit, void) { return 0; }
-HLE_FORCE("_ZN2nn3hid25GetVibrationDeviceHandlesEPNS0_21VibrationDeviceHandleEiRKjNS_4util10BitFlagSetILi32ENS0_12NpadStyleTagEEE", "震动设备：0 个",
-          int, h_hid_VibHandles, void *h, int n, const uint32_t *id, uint32_t style) { (void)h; (void)n; (void)id; (void)style; return 0; }
+// Vibration: one handheld actuator or two Joy-Con actuators, mixed into the phone/controller haptics.
+HLE_FORCE("_ZN2nn3hid20IsVibrationPermittedEv", "震动许可；宿主支持", unsigned, h_hid_VibPermit, void) { return 1; }
+HLE_FORCE("_ZN2nn3hid25GetVibrationDeviceHandlesEPNS0_21VibrationDeviceHandleEiRKjNS_4util10BitFlagSetILi32ENS0_12NpadStyleTagEEE", "震动设备：手持 1 个 / 双 Joy-Con 2 个",
+          int, h_hid_VibHandles, uint32_t *h, int n, const uint32_t *id, uint32_t style) { (void)style; int k = n < 2 ? n : 2; for (int i = 0; i < k; i++) h[i] = (*id << 8) | (uint32_t)i; return k; }
 HLE_FORCE("_ZN2nn3hid25InitializeVibrationDeviceERKNS0_21VibrationDeviceHandleE", "震动；宿主不支持", void, h_hid_InitVib, const void *h) { (void)h; }
-HLE_FORCE("_ZN2nn3hid18SendVibrationValueERKNS0_21VibrationDeviceHandleERKNS0_14VibrationValueE", "震动；宿主不支持", void, h_hid_SendVib, const void *h, const void *v) { (void)h; (void)v; }
+HLE_FORCE("_ZN2nn3hid18SendVibrationValueERKNS0_21VibrationDeviceHandleERKNS0_14VibrationValueE", "震动 → Core Haptics", void, h_hid_SendVib, const void *h, const float *v) {
+    (void)h; if (v) dm_haptic_update(v[0], v[1], v[2], v[3]);
+}
 // Values queued by the vibration graph (VibrationNode::Update) reach it from the sdk's internal FlushEnqueuedVibrationValues through the PLT, into the hid service proxy (sm abort). Metroid Dread
 // sets handles on its VibrationTargets even when the host reports 0 devices, so values get queued; return success and the flush clears its count as usual
-HLE_FORCE("_ZN2nn3hid6detail19SendVibrationValuesEPKNS0_21VibrationDeviceHandleEPKNS0_14VibrationValueEi", "震动（批量，震动图 flush 用）；宿主不支持", Result, h_hid_SendVibs, const void *h, const void *v, int n) { (void)h; (void)v; (void)n; return 0; }
+HLE_FORCE("_ZN2nn3hid6detail19SendVibrationValuesEPKNS0_21VibrationDeviceHandleEPKNS0_14VibrationValueEi", "震动（批量）→ Core Haptics", Result, h_hid_SendVibs, const void *h, const float *v, int n) {
+    (void)h;
+    if (v && n > 0) {
+        float la = 0, lf = 160, ha = 0, hf = 160;
+        for (int i = 0; i < n; i++) {
+            if (v[4*i] > la) { la = v[4*i]; lf = v[4*i+1]; }
+            if (v[4*i+2] > ha) { ha = v[4*i+2]; hf = v[4*i+3]; }
+        }
+        dm_haptic_update(la, lf, ha, hf);
+    }
+    return 0;
+}
 // Mouse / keyboard: not connected
 HLE_FORCE("_ZN2nn3hid15InitializeMouseEv", "鼠标；宿主不提供", void, h_hid_InitMouse, void) {}
 HLE_FORCE("_ZN2nn3hid14GetMouseStatesEPNS0_10MouseStateEi", "鼠标状态：0 条", int, h_hid_MouseStates, void *out, int n) { (void)out; (void)n; return 0; }
