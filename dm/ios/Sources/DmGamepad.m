@@ -295,7 +295,8 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
             if (g_rhythm_touch_logs++ < 160)
                 fprintf(stderr, "RH touch %.1f,%.1f hint=%#llx bits=%#llx\n", p.x, p.y,
                         (unsigned long long)dm_rhythm_touch_get(), (unsigned long long)bits);
-            [_owner setObject:@(C_FACE) forKey:t]; [_faceOf setObject:@(bits) forKey:t];
+            uint64_t side = p.x < CGRectGetMidX(self.safe) ? 1ull << 8 : 0;   // a left-side touch never turns into A by crossing the divider
+            [_owner setObject:@(C_FACE | side) forKey:t]; [_faceOf setObject:@(bits) forKey:t];
             continue;
         }
         if (hit >= 0) { [_owner setObject:@(C_BTN | (uint64_t)hit << 8) forKey:t]; continue; }
@@ -318,6 +319,7 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
         if (_rhythm) {
             if ([_owner objectForKey:t]) {
                 uint64_t bits = [self rhythmBitsAt:p];
+                if ((v & (1ull << 8)) && bits == 1ull << B_A) bits = 0;
                 uint64_t old = [[_faceOf objectForKey:t] unsignedLongLongValue];
                 if (bits != old && g_rhythm_touch_logs++ < 160)
                     fprintf(stderr, "RH move %.1f,%.1f hint=%#llx bits=%#llx\n", p.x, p.y,
