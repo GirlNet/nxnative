@@ -141,7 +141,7 @@ static void res_commit(void) {
     pthread_mutex_unlock(&g_res_mu);
 }
 
-@interface NvDeferredRelease : NSObject { @public id object; uint64_t fence; int keep_resident; } @end
+@interface NvDeferredRelease : NSObject { @public id object; uint64_t fence; int keep_resident; uint64_t serial; } @end
 @implementation NvDeferredRelease @end
 static NSMutableArray<NvDeferredRelease *> *g_deferred;
 static pthread_mutex_t g_deferred_mu = PTHREAD_MUTEX_INITIALIZER;
@@ -152,7 +152,17 @@ static pthread_mutex_t g_deferred_mu = PTHREAD_MUTEX_INITIALIZER;
 // after the transparency chain's in-place composite swapped the storage of two textures, each of the two live textures was removed once this way, and afterwards they are used as attachments and sampled every frame as usual - the GPU accesses non-resident memory.
 static void defer_obj_release_ex(id obj, int keep_resident) {
     if (!obj) return;
-    NvDeferredRelease *d = [NvDeferredRelease new]; d->object = obj; d->fence = g_fence + 1; d->keep_resident = keep_resident;
+    NvDeferredRelease *d = [NvDeferredRelease new]; d->object = obj; d->fence = g_fence + 1; d->keep_resident = keep_resident; d->serial = 0;
+    pthread_mutex_lock(&g_deferred_mu);
+    if (!g_deferred) g_deferred = [NSMutableArray array];
+    [g_deferred addObject:d];
+    pthread_mutex_unlock(&g_deferred_mu);
+}
+static void treg_drop_serial_views(uint64_t serial);
+// A re-uploaded package texture is replaced by a new MTLTexture; its cached views keep the old one alive. Drop them when the old texture is retired.
+static void defer_obj_release_serial(id obj, uint64_t serial) {
+    if (!obj) return;
+    NvDeferredRelease *d = [NvDeferredRelease new]; d->object = obj; d->fence = g_fence + 1; d->keep_resident = 0; d->serial = serial;
     pthread_mutex_lock(&g_deferred_mu);
     if (!g_deferred) g_deferred = [NSMutableArray array];
     [g_deferred addObject:d];
@@ -170,6 +180,7 @@ static void defer_drain(void) {
     pthread_mutex_unlock(&g_deferred_mu);
     for (NvDeferredRelease *d in ready) {
         id obj = d->object;
+        if (d->serial) treg_drop_serial_views(d->serial);
         if (!d->keep_resident && [obj conformsToProtocol:@protocol(MTLResource)]) {
             pthread_mutex_lock(&g_res_mu);
             int registered = [g_res_objects containsObject:obj];
@@ -861,6 +872,7 @@ static int alias_has(id o) { return g_alias_set && o && CFSetContainsValue(g_ali
 // Engage frees pools on scene changes and rebuilds on new ones, so the old pools' render targets and other private textures stayed in the table forever (about 0.8 GB more GPU memory over 850 s of the title demo), and linear textures built directly on a pool also kept the whole pool buffer alive.
 // Also, when a pool object's address is reused, old entries would hand a texture on the old storage to the new pool's texture at the same offset and description. Evicted textures go through deferred release; if the serial table still holds one, that is just one more reference
 static void treg_drop_pool_views(const void *pool);
+static void treg_drop_serial_views(uint64_t serial);
 void mtl_alias_drop_pool(const void *pool) {
     if (!pool) return;
     pthread_mutex_lock(&g_smu);
@@ -1446,7 +1458,7 @@ static id<MTLTexture> tex_mtl_(const tex_t *ct) {
                 return pk->tex;
             }
             uint64_t st; id<MTLTexture> nt = pkg_upload(t, &st);   // Pool content changed (streamed assets written into the same storage): switch to a new texture; in-flight draws still read the old one
-            if (nt) { id<MTLTexture> old = pk->tex; pk->tex = nt; defer_obj_release(old); res_add(nt); g_ser_gen++; pk->stamp = st; pk->seen = nvn_dirty_now(); g_pkg_reuploads++; if (dirtycheck()) pk->hash = full_hash(t->mem, t->L.size); }
+            if (nt) { id<MTLTexture> old = pk->tex; pk->tex = nt; defer_obj_release_serial(old, t->serial); res_add(nt); g_ser_gen++; pk->stamp = st; pk->seen = nvn_dirty_now(); g_pkg_reuploads++; if (dirtycheck()) pk->hash = full_hash(t->mem, t->L.size); }
             return pk->tex;
         }
         pk = [NvPkg new];
@@ -2480,6 +2492,17 @@ static samp_par *g_sreg; static uint8_t *g_sreg_ok; static void **g_sview; stati
 // Memory pool Finalize: for texture IDs whose registered texture lives on this pool, drop the cached MTLTexture (view or base texture). The cache used to be released only when the ID was registered again,
 // so a linear texture built directly on a pool kept the whole pool buffer alive (6 to 17 finalized 16 MB pool buffers stayed alive in Engage's title demo). If the ID is still used, the next lookup rebuilds it on the slow path
 static void treg_drop_ar(treg_t *r) { if (r->ar) { defer_obj_unref((__bridge id)r->ar); CFRelease(r->ar); r->ar = r->ar_of = NULL; r->ar_rid = 0; } }
+static void treg_drop_serial_views(uint64_t serial) {
+    pthread_mutex_lock(&g_rmu);
+    for (int i = 0; i < g_ntreg; i++) {
+        treg_t *r = &g_treg[i];
+        if (!r->ok || r->t.serial != serial) continue;
+        if (r->view) { defer_obj_unref((__bridge id)r->view); CFRelease(r->view); r->view = NULL; r->view_id = r->view_rid = 0; }
+        if (r->alt) { defer_obj_unref((__bridge id)r->alt); CFRelease(r->alt); r->alt = r->alt_of = NULL; r->alt_rid = 0; }
+        treg_drop_ar(r);
+    }
+    pthread_mutex_unlock(&g_rmu);
+}
 static void treg_drop_pool_views(const void *pool) {
     pthread_mutex_lock(&g_rmu);
     for (int i = 0; i < g_ntreg; i++)
