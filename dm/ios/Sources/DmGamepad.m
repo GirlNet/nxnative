@@ -226,8 +226,8 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
     if (p.y < CGRectGetMinY(s) + 62 * u) {
         if (p.x < CGRectGetMinX(s) + 80 * u) return 1ull << B_Y;
         if (p.x < CGRectGetMinX(s) + 145 * u) return 1ull << B_MINUS;
-        if (p.x > CGRectGetMaxX(s) - 145 * u && p.x < CGRectGetMaxX(s) - 80 * u) return 1ull << B_B;
-        if (p.x >= CGRectGetMaxX(s) - 80 * u) return 1ull << B_PLUS;
+        if (p.x > CGRectGetMaxX(s) - 145 * u && p.x < CGRectGetMaxX(s) - 80 * u) return 1ull << B_PLUS;
+        if (p.x >= CGRectGetMaxX(s) - 80 * u) return 1ull << B_B;
     }
     if (p.x >= CGRectGetMidX(s)) return 1ull << B_A;
     if (layout == 1) return first < 64 ? 1ull << first : 0;
@@ -360,10 +360,10 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
         CGFloat top = CGRectGetMinY(s) + 30 * u;
         _rhythmLayer[0].path = CGPathCreateWithRoundedRect(CGRectMake(CGRectGetMinX(s)+12*u, CGRectGetMinY(s)+80*u, CGRectGetWidth(s)*0.42, CGRectGetHeight(s)-100*u), 24*u, 24*u, NULL);
         _rhythmLayer[1].path = CGPathCreateWithRoundedRect(CGRectMake(CGRectGetMidX(s)+8*u, CGRectGetMinY(s)+80*u, CGRectGetWidth(s)*0.46, CGRectGetHeight(s)-100*u), 32*u, 32*u, NULL);
-        _rhythmLayer[2].path = circlePath(CGPointMake(CGRectGetMaxX(s)-110*u, top), 24*u);   // B
+        _rhythmLayer[2].path = circlePath(CGPointMake(CGRectGetMaxX(s)-48*u, top), 24*u);    // B
         _rhythmLayer[3].path = circlePath(CGPointMake(CGRectGetMinX(s)+48*u, top), 24*u);    // Y
         _rhythmLayer[4].path = circlePath(CGPointMake(CGRectGetMinX(s)+116*u, top), 24*u);   // −
-        _rhythmLayer[5].path = circlePath(CGPointMake(CGRectGetMaxX(s)-48*u, top), 24*u);    // +
+        _rhythmLayer[5].path = circlePath(CGPointMake(CGRectGetMaxX(s)-110*u, top), 24*u);   // +
         CGRect dpadArea = self.corner;
         CGFloat cx = CGRectGetMinX(dpadArea) + 74*u, cy = CGRectGetMaxY(s) - 66*u, d = 38*u;
         CGPoint pp[4] = {{cx-d,cy},{cx,cy-d},{cx+d,cy},{cx,cy+d}};   // lower and tighter so the whole cluster follows the thumb
