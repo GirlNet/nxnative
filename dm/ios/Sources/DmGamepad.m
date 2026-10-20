@@ -217,6 +217,12 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
     if (a < -22.5 && a > -157.5) m |= 1ull << B_DOWN;
     return m;
 }
+- (int)rhythmDirectionAt:(CGPoint)p {   // the same left-half direction map used outside a level
+    CGRect s = self.safe; CGFloat dx = p.x - CGRectGetMinX(s), dy = p.y - CGRectGetMidY(s);
+    if (dx < CGRectGetWidth(s) * 0.16) return B_LEFT;
+    if (dx > CGRectGetWidth(s) * 0.30) return B_RIGHT;
+    return dy < 0 ? B_UP : B_DOWN;
+}
 - (uint64_t)rhythmBitsAt:(CGPoint)p {
     uint64_t h = dm_rhythm_touch_get();
     int layout = (int)(h & 0xff), first = (int)(h >> 8 & 0xff), second = (int)(h >> 16 & 0xff);
@@ -228,30 +234,20 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
         if (p.x >= CGRectGetMaxX(s) - 80 * u) return 1ull << B_B;
     }
     if (p.x >= CGRectGetMidX(s)) return 1ull << B_A;
-    BOOL directional = layout == 0 || (layout == 1 && first >= B_LEFT && first <= B_DOWN);
-    CGRect dpadArea = self.corner;
-    CGRect touchArea = CGRectMake(CGRectGetMinX(dpadArea) + 8*u, CGRectGetMidY(s), 190*u, CGRectGetHeight(s) * 0.38);
-    CGRect touchHitArea = touchArea;
-    touchHitArea.origin.y -= 48*u; touchHitArea.size.height += 48*u;   // a small upward slop keeps the pause menu usable
-    CGFloat dx = p.x - CGRectGetMidX(touchArea);
-    CGFloat dy = p.y - (CGRectGetMinY(touchArea) + CGRectGetHeight(touchArea) * 0.72);
-    if (directional && (!CGRectContainsPoint(touchHitArea, p) || hypot(dx, dy) < 12*u)) return 0;
-    if (layout == 1) return first < 64 ? 1ull << first : 0;
+    int direction = [self rhythmDirectionAt:p];
+    if (layout == 1) {
+        if (first < B_LEFT || first > B_DOWN) return first < 64 ? 1ull << first : 0;
+        return direction == first ? 1ull << first : 0;
+    }
     if (layout == 2) return 1ull << (p.x < CGRectGetMidX(s) - CGRectGetWidth(s) * 0.22 ? first : second);
     if (layout == 0) {
         unsigned mask = (unsigned)first;
         if (!mask) mask = 15;
         static const unsigned dirBit[4] = {1, 2, 4, 8};   // left up right down
-        if ((mask & (mask - 1)) == 0) {
-            for (int i = 0; i < 4; i++) if (mask & dirBit[i])
-                return 1ull << (i == 0 ? B_LEFT : i == 1 ? B_UP : i == 2 ? B_RIGHT : B_DOWN);
-        }
-        int dir = fabs(dx) > fabs(dy) ? (dx < 0 ? 0 : 2) : (dy < 0 ? 1 : 3);
-        return (mask & dirBit[dir]) ? 1ull << (dir == 0 ? B_LEFT : dir == 1 ? B_UP : dir == 2 ? B_RIGHT : B_DOWN) : 0;
+        int dir = direction - B_LEFT;
+        return (mask & dirBit[dir]) ? 1ull << direction : 0;
     }
-    // menu: small left D-pad
-    dx = p.x - CGRectGetMidX(s) * 0.5; dy = p.y - CGRectGetMidY(s);
-    return fabs(dx) > fabs(dy) ? (dx < 0 ? 1ull << B_LEFT : 1ull << B_RIGHT) : (dy < 0 ? 1ull << B_UP : 1ull << B_DOWN);
+    return 1ull << direction;
 }
 - (CGPoint)knobOffset:(int)i {   // knob offset from the ring centre (clamped to the ring)
     if (!_stick[i]) return CGPointZero;
