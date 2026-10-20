@@ -55,6 +55,7 @@ jobs:
             if [ "$HOST_ONLY" = "true" ]; then
               # Code-only update: keep the committed shader-chain version so the host matches the shader cache already in the IPA.
               # build_ipa.sh only checks that the directory contains a metallib before it stops after DmIOS.bin.
+              sed -i '' 's/^#define DMSH_CHAIN ".*"/#define DMSH_CHAIN "b-03a912b0e554"/' "dm/games/$GAME/dmsh_chain.h"
               V=$(sed -n 's/^#define DMSH_CHAIN "\(.*\)"/\1/p' "dm/games/$GAME/dmsh_chain.h")
               mkdir -p "$ROOT/hostonly-msl/b-$V"
               : > "$ROOT/hostonly-msl/b-$V/placeholder_b.metallib"
