@@ -241,12 +241,24 @@ NVN(nvnTextureInitialize, NVNboolean, NVNtexture *t, const NVNtextureBuilder *b)
     // Diagnostic / per-game override for CPU-written textures whose block-linear writer uses a different tile height than the automatic
     // (deko3d) layout: DM_NVN_TILE_H=0..4 forces the GOB block height for textures without a packaged layout.
     if (!s->has_layout) {
+        // Rhythm Heaven's texture decompressor writes its short BC7 UI / font atlases with a 2-GOB block height, whatever their width.
+        // The automatic (deko3d) layout picks it from the height and tears the atlases; the profile's tile_h_bc7 carries the writer's constant.
+        if (DM_GAME_TILE_H_BC7 >= 0 && (o->d.format == 0x4d || o->d.format == 0x4e) &&
+            (!DM_GAME_TILE_H_BC7_MAX_H || o->d.height <= DM_GAME_TILE_H_BC7_MAX_H)) {
+            o->d.pkg_block_h = (uint32_t)DM_GAME_TILE_H_BC7 + 1;
+            static int n; if (n++ < 8) LOG("[nvn] BC7 贴图 %ux%u 用游戏档案的块高 tileH=%d", o->d.width, o->d.height, DM_GAME_TILE_H_BC7);
+        }
         const char *th = getenv("DM_NVN_TILE_H");
         if (!th || !*th) th = DM_GAME_TILE_H;
-        if (th && *th) { unsigned w = 0, h = 0; int v = -1;
-            if (sscanf(th, "%ux%u:%d", &w, &h, &v) == 3) { if (v >= 0 && v <= 4 && o->d.width == w && o->d.height == h) o->d.pkg_block_h = (uint32_t)v + 1; }
-            else if (sscanf(th, "%d", &v) == 1 && v >= 0 && v <= 4) o->d.pkg_block_h = (uint32_t)v + 1;
-            if (o->d.pkg_block_h) { static int n; if (n++ < 12) LOG("[nvn] 强制块高 %ux%u 格式 %#x → tileH=%d", o->d.width, o->d.height, o->d.format, o->d.pkg_block_h - 1); } }
+        if (th && *th) {
+            char buf[256]; snprintf(buf, sizeof buf, "%s", th);
+            for (char *e = buf, *s; (s = strtok_r(e, " ", &e)) != NULL; ) {
+                unsigned w = 0, h = 0; int v = -1;
+                if (sscanf(s, "%ux%u:%d", &w, &h, &v) == 3) { if (v >= 0 && v <= 4 && o->d.width == w && o->d.height == h) o->d.pkg_block_h = (uint32_t)v + 1; }
+                else if (sscanf(s, "%d", &v) == 1 && v >= 0 && v <= 4) o->d.pkg_block_h = (uint32_t)v + 1;
+            }
+            if (o->d.pkg_block_h) { static int n; if (n++ < 12) LOG("[nvn] 强制块高 %ux%u 格式 %#x → tileH=%d", o->d.width, o->d.height, o->d.format, o->d.pkg_block_h - 1); }
+        }
     }
     nvn_tex_layout(&o->d, &o->L);
     o->mem = s->pool && s->pool->mem ? s->pool->mem + s->off : NULL;
