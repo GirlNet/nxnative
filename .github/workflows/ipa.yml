@@ -1,4 +1,4 @@
-# Build one game's unsigned IPA on a macOS runner, from a payload prepared locally after extraction:
+# Build one game's unsigned IPA on an ARM macOS runner, from a payload prepared locally after extraction:
 # the payload root holds data/v0 (RomFS + control.nacp + icon.jpg), build/patched_v0 (rewritten modules) and verify/pkg (split shaders).
 # Game files never enter the repository: the payload comes from a one-off link given at dispatch time, and the IPA leaves as a one-day artifact.
 name: ipa
@@ -27,7 +27,7 @@ on:
 
 jobs:
   ipa:
-    runs-on: macos-26
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - name: Tools
