@@ -1,6 +1,6 @@
 // Storage size / alignment / per-level offsets of NVN textures (Tegra X1 block-linear layout).
 // The algorithm is ported from deko3d source/dk_image.cpp (zlib license, Copyright (C) 2018-2020 fincs):
-//   one GOB = 64 bytes × 8 rows = 512 bytes; the block height (tileH, in GOBs) is picked by 'height×1.5'; levels are accumulated with block alignment.
+//   one GOB = 64 bytes × 8 rows = 512 bytes; the block height (tileH, in GOBs) is picked by 'height×1.5' with the GOB count rounded down; levels are accumulated with block alignment.
 // The game's packaged textures (SetPackagedTextureLayout) carry 8 bytes of layout parameters: byte 0 = log2 of the block height (derived by comparing 16 cases from the real game,
 // 4 of which differ from the automatic algorithm); when present it takes precedence.
 #include "nvn_tex.h"
@@ -94,7 +94,9 @@ void nvn_tex_layout(const nvn_texdesc *d, nvn_texlayout *o) {
         return;
     }
     unsigned tileH = 0, tileD = 0;
-    if (dpl == 2) { uint32_t ah = blk(h * sy, t.bh); tileH = d->pkg_block_h ? (unsigned)d->pkg_block_h - 1 : pick_tile((ah + ah / 2 + 7) / 8); }
+    // Round the GOB count of 'height×1.5' down. Rhythm Heaven's nn::gfx textures carry no packaged layout and use NVN's default block height;
+    // rounding up selects one step too high at boundaries (BC7 2560×160 is 7 GOBs, not 8), tearing every CPU-written atlas.
+    if (dpl == 2) { uint32_t ah = blk(h * sy, t.bh); tileH = d->pkg_block_h ? (unsigned)d->pkg_block_h - 1 : pick_tile((ah + ah / 2) / 8); }
     else if (dpl == 3) tileD = pick_tile(z + z / 2);
     o->tileH = tileH; o->tileD = tileD;
     unsigned levels = d->levels ? d->levels : 1;

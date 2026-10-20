@@ -73,7 +73,7 @@ int main(void) {
     EXPECT("MemoryPoolInitialize 成功", 1, P(nvnMemoryPoolInitialize)(&pool, &pb));
     EXPECT("池 GPU 地址 = 存储地址", (long long)(uintptr_t)poolmem, P(nvnMemoryPoolGetBufferAddress)(&pool));
 
-    // 4. Texture storage size (block-linear: GOB = 64 B × 8 rows; block height from the GOB count of "height × 1.5": ≥16→16, ≥8→8 ...)
+    // 4. Texture storage size (block-linear: GOB = 64 B × 8 rows; block height from the GOB count of "height × 1.5", rounded down: ≥16→16, ≥8→8 ...)
     //    256×256 RGBA8: 1024 B per row = 16 GOBs; height 256 rows = 32 GOB rows, block height 16 GOBs → 2 blocks; 16×2×(512×16) = 262144
     size_t al; EXPECT("256x256 RGBA8 尺寸", 262144, tex_size(NVN_FORMAT_RGBA8, 256, 256, 0, &al));
     EXPECT("块线性对齐", 512, al);
@@ -81,6 +81,21 @@ int main(void) {
     EXPECT("100x100 RGBA8 尺寸", 57344, tex_size(NVN_FORMAT_RGBA8, 100, 100, 0, NULL));
     //    128×128 DXT1: 32×32 blocks, 8 B/block → 256 B = 4 GOBs wide; 32 rows → ×1.5 = 48 rows = 6 GOBs → block height 4 → 4 GOB rows = 1 block; 4×1×2048 = 8192
     EXPECT("128x128 DXT1 尺寸", 8192, tex_size(NVN_FORMAT_RGBA_DXT1, 128, 128, 0, NULL));
+    //    Block-height GOB count rounded down (measured on Rhythm Heaven's nn::gfx textures):
+    //    BC7 2560×160 = 40 block rows → 60 rows = 7 GOBs → 4 GOBs (log2 2);
+    //    288×336 = 84 block rows → 126 rows = 15 GOBs → 8 GOBs (log2 3);
+    //    80×80 = 20 block rows → 30 rows = 3 GOBs → 2 GOBs (log2 1); ASTC 160×175 is not at a boundary and stays at 8 GOBs.
+    {
+        static const struct { int fmt; uint32_t w, h; unsigned tile; } c[] = {
+            {0x4d, 2560, 160, 2}, {0x4d, 288, 336, 3}, {0x4d, 80, 80, 1}, {0x79, 160, 175, 3},
+        };
+        for (unsigned i = 0; i < sizeof c / sizeof *c; i++) {
+            nvn_texdesc d = {.target = NVN_TEXTURE_TARGET_2D, .format = c[i].fmt, .width = c[i].w, .height = c[i].h, .depth = 1, .levels = 1};
+            nvn_texlayout L; nvn_tex_layout(&d, &L);
+            char name[64]; snprintf(name, sizeof name, "%ux%u 格式%#x 块高 log2", c[i].w, c[i].h, c[i].fmt);
+            EXPECT(name, c[i].tile, L.tileH);
+        }
+    }
     //    LINEAR 100×100 RGBA8: row pitch 400 aligned to 32 = 416; 416×100 = 41600, aligned to 32
     EXPECT("线性 100x100 RGBA8 尺寸", 41600, tex_size(NVN_FORMAT_RGBA8, 100, 100, NVN_TEXTURE_FLAGS_LINEAR, &al));
     EXPECT("线性对齐", 32, al);
