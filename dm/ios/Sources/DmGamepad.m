@@ -145,9 +145,7 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
     _ring[0].hidden = _knob[0].hidden = _rhythm;
     _ring[1].hidden = _knob[1].hidden = !_full || _rhythm;
     _swap.hidden = _swapLabel.hidden = _rhythm;
-    uint64_t rh = _rhythm ? dm_rhythm_touch_get() : 0;
-    BOOL rhythmDpad = _rhythm && (int)(rh & 0xff) == 0 && (int)(rh >> 8 & 0xff) != 0;
-    for (int i = 0; i < 10; i++) _rhythmLayer[i].hidden = !_rhythm || i < 2 || (i >= 6 && !rhythmDpad);
+    for (int i = 0; i < 10; i++) _rhythmLayer[i].hidden = !_rhythm || i < 2 || i >= 6;
     _swapLabel.string = _full ? @"3D" : @"2D";
     [CATransaction commit];
 }
@@ -232,10 +230,14 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
     if (p.x >= CGRectGetMidX(s)) return 1ull << B_A;
     if (layout == 1) return first < 64 ? 1ull << first : 0;
     if (layout == 2) return 1ull << (p.x < CGRectGetMidX(s) - CGRectGetWidth(s) * 0.22 ? first : second);
-    CGFloat dx = p.x - CGRectGetMidX(s) * 0.5, dy = p.y - CGRectGetMidY(s);
     if (layout == 0) {
         unsigned mask = (unsigned)first;
         if (!mask) mask = 15;
+        CGRect dpadArea = self.corner;
+        CGFloat cx = CGRectGetMinX(dpadArea) + 74*u, r = 66*u;
+        CGFloat dx = p.x - cx, dy = p.y - (CGRectGetMidY(s) + r);
+        CGFloat reach = hypot(dx, dy);
+        if (reach > r || reach < r * 0.18) return 0;   // compact thumb area, starting at the screen midline
         static const unsigned dirBit[4] = {1, 2, 4, 8};   // left up right down
         if ((mask & (mask - 1)) == 0) {
             for (int i = 0; i < 4; i++) if (mask & dirBit[i])
@@ -245,6 +247,7 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
         return (mask & dirBit[dir]) ? 1ull << (dir == 0 ? B_LEFT : dir == 1 ? B_UP : dir == 2 ? B_RIGHT : B_DOWN) : 0;
     }
     // menu: small left D-pad
+    CGFloat dx = p.x - CGRectGetMidX(s) * 0.5, dy = p.y - CGRectGetMidY(s);
     return fabs(dx) > fabs(dy) ? (dx < 0 ? 1ull << B_LEFT : 1ull << B_RIGHT) : (dy < 0 ? 1ull << B_UP : 1ull << B_DOWN);
 }
 - (CGPoint)knobOffset:(int)i {   // knob offset from the ring centre (clamped to the ring)
