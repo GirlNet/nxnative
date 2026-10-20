@@ -11,7 +11,6 @@
 #import <GameController/GameController.h>
 #import <CoreText/CoreText.h>
 #include <pthread.h>
-#include <stdio.h>
 #include <string.h>
 #include "dm_input.h"
 #include "game_profile.h"
@@ -22,7 +21,8 @@ enum { C_NONE = 0, C_STICK, C_DPAD, C_FACE, C_BTN, C_SWAP };   // which control 
 
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
 static uint64_t g_touch_btn, g_pad_btn;
-static int g_rhythm_touch_logs;
+static uint64_t g_last_buttons;
+static BOOL g_rhythm_paused;
 static int32_t g_touch_lx, g_touch_ly, g_touch_rx, g_touch_ry, g_pad_lx, g_pad_ly, g_pad_rx, g_pad_ry;
 static int tilted(int32_t x, int32_t y) { return (int64_t)x * x + (int64_t)y * y > (int64_t)4000 * 4000; }
 static void publish(void) {
@@ -30,7 +30,11 @@ static void publish(void) {
     int32_t lx = g_touch_lx, ly = g_touch_ly, rx = g_touch_rx, ry = g_touch_ry;
     if (tilted(g_pad_lx, g_pad_ly)) { lx = g_pad_lx; ly = g_pad_ly; }   // a tilted physical stick wins
     if (tilted(g_pad_rx, g_pad_ry)) { rx = g_pad_rx; ry = g_pad_ry; }
-    dm_input_set(g_touch_btn | g_pad_btn, lx, ly, rx, ry);
+    uint64_t buttons = g_touch_btn | g_pad_btn, pressed = buttons & ~g_last_buttons;
+    if (pressed & (1ull << B_PLUS)) g_rhythm_paused = !g_rhythm_paused;
+    else if (pressed & ((1ull << B_A) | (1ull << B_B))) g_rhythm_paused = NO;
+    g_last_buttons = buttons;
+    dm_input_set(buttons, lx, ly, rx, ry);
     pthread_mutex_unlock(&g_mu);
 }
 
@@ -153,10 +157,9 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
 }
 - (void)pollRhythmHint {
     uint64_t h = dm_rhythm_touch_get();
+    if ((int)(h & 0xff) == 3) g_rhythm_paused = NO;
     if (h == _lastHint) return;
     _lastHint = h;
-    fprintf(stderr, "RH hint=%#llx layout=%d first=%d second=%d\n", (unsigned long long)h,
-            (int)(h & 0xff), (int)(h >> 8 & 0xff), (int)(h >> 16 & 0xff));
     [self applyLayout];
     [self setNeedsLayout];
 }
@@ -239,6 +242,7 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
     }
     if (p.x >= CGRectGetMidX(s)) return 1ull << B_A;
     int direction = [self rhythmDirectionAt:p];
+    if (g_rhythm_paused) return 1ull << direction;
     if (layout == 1) {
         if (first < B_LEFT || first > B_DOWN) return first < 64 ? 1ull << first : 0;
         return 1ull << direction;
@@ -284,9 +288,6 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
         CGPoint p = [t locationInView:self]; int hit = [self btnAt:p];
         if (_rhythm) {
             uint64_t bits = [self rhythmBitsAt:p];
-            if (g_rhythm_touch_logs++ < 200)
-                fprintf(stderr, "RH touch %.1f,%.1f hint=%#llx bits=%#llx\n", p.x, p.y,
-                        (unsigned long long)dm_rhythm_touch_get(), (unsigned long long)bits);
             if (bits) { [_owner setObject:@(C_FACE) forKey:t]; [_faceOf setObject:@(bits) forKey:t]; }
             continue;
         }
