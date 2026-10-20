@@ -71,7 +71,9 @@ static __weak DmGamepad *g_view;
     BOOL _sticksShown;                             // a stick was held at the last refresh
     BOOL _full;                                    // the 3D layout is current
     BOOL _rhythm;
-    CAShapeLayer *_rhythmLayer[6]; CATextLayer *_rhythmText[6];
+    uint64_t _lastHint;
+    CADisplayLink *_rhythmLink;
+    CAShapeLayer *_rhythmLayer[10]; CATextLayer *_rhythmText[10];
 }
 
 static UIColor *k_idle, *k_on, *k_line, *k_ringFill, *k_text, *k_textOn;
@@ -111,8 +113,8 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
         }
         _swap = shape(self.layer); _swapLabel = label(_swap, @"");
         _rhythm = !strcmp(DM_GAME_ID, "0100D9F01D474000");
-        static NSString *const rhythmNames[6] = {@"LEFT", @"A", @"B", @"Y", @"−", @"+"};
-        for (int i = 0; i < 6; i++) {
+        static NSString *const rhythmNames[10] = {@"LEFT", @"A", @"B", @"Y", @"−", @"+", @"◀", @"▲", @"▶", @"▼"};
+        for (int i = 0; i < 10; i++) {
             _rhythmLayer[i] = shape(self.layer);
             _rhythmLayer[i].fillColor = [UIColor colorWithWhite:1 alpha:0.025].CGColor;
             _rhythmLayer[i].strokeColor = [UIColor colorWithWhite:1 alpha:0.10].CGColor;
@@ -121,6 +123,11 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
             _rhythmText[i] = label(_rhythmLayer[i], i < 2 ? @"" : rhythmNames[i]);
             _rhythmText[i].fontSize = 18;
             _rhythmText[i].foregroundColor = [UIColor colorWithWhite:1 alpha:0.28].CGColor;
+        }
+        if (_rhythm) {
+            _rhythmLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(pollRhythmHint)];
+            _rhythmLink.preferredFrameRateRange = CAFrameRateRangeMake(30, 60, 60);
+            [_rhythmLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
         }
         NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
         _full = saved ? saved.boolValue : DM_GAME_PAD_FULL;
@@ -138,9 +145,18 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
     _ring[0].hidden = _knob[0].hidden = _rhythm;
     _ring[1].hidden = _knob[1].hidden = !_full || _rhythm;
     _swap.hidden = _swapLabel.hidden = _rhythm;
-    for (int i = 0; i < 6; i++) _rhythmLayer[i].hidden = !_rhythm || i < 2;
+    uint64_t rh = _rhythm ? dm_rhythm_touch_get() : 0;
+    BOOL rhythmDpad = _rhythm && (int)(rh & 0xff) == 0;
+    for (int i = 0; i < 10; i++) _rhythmLayer[i].hidden = !_rhythm || i < 2 || (i >= 6 && !rhythmDpad);
     _swapLabel.string = _full ? @"3D" : @"2D";
     [CATransaction commit];
+}
+- (void)pollRhythmHint {
+    uint64_t h = dm_rhythm_touch_get();
+    if (h == _lastHint) return;
+    _lastHint = h;
+    [self applyLayout];
+    [self setNeedsLayout];
 }
 - (void)setFull:(BOOL)full {   // switch layouts: release every touch first (no key stays held), save, lay out again
     if (full == _full) return;
@@ -348,7 +364,10 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
         _rhythmLayer[3].path = circlePath(CGPointMake(CGRectGetMinX(s)+48*u, top), 24*u);    // Y
         _rhythmLayer[4].path = circlePath(CGPointMake(CGRectGetMinX(s)+116*u, top), 24*u);   // −
         _rhythmLayer[5].path = circlePath(CGPointMake(CGRectGetMaxX(s)-48*u, top), 24*u);    // +
-        for (int i = 0; i < 6; i++) _rhythmText[i].frame = _rhythmLayer[i].path ? CGPathGetPathBoundingBox(_rhythmLayer[i].path) : CGRectZero;
+        CGFloat cx = CGRectGetMinX(s) + 74*u, cy = CGRectGetMaxY(s) - 74*u, d = 54*u;
+        CGPoint pp[4] = {{cx-d,cy},{cx,cy-d},{cx+d,cy},{cx,cy+d}};
+        for (int i = 0; i < 4; i++) _rhythmLayer[6+i].path = circlePath(pp[i], 25*u);
+        for (int i = 0; i < 10; i++) _rhythmText[i].frame = _rhythmLayer[i].path ? CGPathGetPathBoundingBox(_rhythmLayer[i].path) : CGRectZero;
         return;
     }
     CGFloat u = self.u;
