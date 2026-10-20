@@ -59,7 +59,7 @@ jobs:
             # (runner-local only — the committed dmsh_chain.lock and every profile's chain version stay untouched)
             DM_GAME="$GAME" python3 dm/gfx/tools/dmsh_chain.py --update-lock
             DM_GAME="$GAME" python3 dm/gfx/tools/dmsh_chain.py --header
-            DM_GAME="$GAME" XLATE=dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate IOSOUT=w/shader/ios \
+            DM_GAME="$GAME" IOSOUT=w/shader/ios \
               python3 dm/gfx/tools/dmsh_build.py w/shader/pkg w/shader/cache
             # build_ipa.sh copies c1_full.tsv and the replay layer trusts it only when its first line names this chain
             V=$(sed -n 's/^#define DMSH_CHAIN "\(.*\)"/\1/p' "dm/games/$GAME/dmsh_chain.h")
