@@ -364,8 +364,8 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
         _rhythmLayer[3].path = circlePath(CGPointMake(CGRectGetMinX(s)+48*u, top), 24*u);    // Y
         _rhythmLayer[4].path = circlePath(CGPointMake(CGRectGetMinX(s)+116*u, top), 24*u);   // −
         _rhythmLayer[5].path = circlePath(CGPointMake(CGRectGetMaxX(s)-48*u, top), 24*u);    // +
-        CGFloat cx = CGRectGetMinX(s) + 74*u, cy = CGRectGetMaxY(s) - 74*u, d = 46*u;
-        CGPoint pp[4] = {{cx-d,cy},{cx,cy-d},{cx+d,cy},{cx,cy+d}};
+        CGFloat cx = CGRectGetMinX(s) + 74*u, cy = CGRectGetMaxY(s) - 74*u, d = 46*u, upY = cy - 40*u;
+        CGPoint pp[4] = {{cx-d,cy},{cx,upY},{cx+d,cy},{cx,cy+d}};   // up is slightly lower to match the thumb's resting reach
         for (int i = 0; i < 4; i++) _rhythmLayer[6+i].path = circlePath(pp[i], 22*u);
         for (int i = 0; i < 10; i++) {
             CGRect box = _rhythmLayer[i].path ? CGPathGetPathBoundingBox(_rhythmLayer[i].path) : CGRectZero;
