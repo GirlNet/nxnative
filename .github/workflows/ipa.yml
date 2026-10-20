@@ -52,21 +52,30 @@ jobs:
             zstd -d -c payload.tar.zst | tar -xf - -C w
             mv w/verify/pkg w/shader/pkg
             rm -rf payload.tar.zst w/verify
-            # The checked-in translator is arm64; the Intel macOS 26 runner needs an x64 build from the same sources.
-            dotnet publish dm/gfx/tools/dmsh_xlate/dmsh_xlate.csproj -c Release -r osx-x64 --self-contained true -o "$ROOT/xlate-x64"
-            export XLATE="$ROOT/xlate-x64/dmsh_xlate"
-            # the runner's Metal / spirv-cross differ from the committed tool lock: re-key the chain to the runner's tools
-            # (runner-local only — the committed dmsh_chain.lock and every profile's chain version stay untouched)
-            DM_GAME="$GAME" python3 dm/gfx/tools/dmsh_chain.py --update-lock
-            DM_GAME="$GAME" python3 dm/gfx/tools/dmsh_chain.py --header
-            DM_GAME="$GAME" IOSOUT=w/shader/ios \
-              python3 dm/gfx/tools/dmsh_build.py w/shader/pkg w/shader/cache
+            if [ "$HOST_ONLY" = "true" ]; then
+              # Code-only update: keep the committed shader-chain version so the host matches the shader cache already in the IPA.
+              # build_ipa.sh only checks that the directory contains a metallib before it stops after DmIOS.bin.
+              V=$(sed -n 's/^#define DMSH_CHAIN "\(.*\)"/\1/p' "dm/games/$GAME/dmsh_chain.h")
+              mkdir -p "$ROOT/hostonly-msl/b-$V"
+              : > "$ROOT/hostonly-msl/b-$V/placeholder_b.metallib"
+              MSL_PATH="$ROOT/hostonly-msl"
+            else
+              # The checked-in translator is arm64; the Intel macOS 26 runner needs an x64 build from the same sources.
+              dotnet publish dm/gfx/tools/dmsh_xlate/dmsh_xlate.csproj -c Release -r osx-x64 --self-contained true -o "$ROOT/xlate-x64"
+              export XLATE="$ROOT/xlate-x64/dmsh_xlate"
+              # the runner's Metal / spirv-cross differ from the committed tool lock: re-key the chain to the runner's tools
+              DM_GAME="$GAME" python3 dm/gfx/tools/dmsh_chain.py --update-lock
+              DM_GAME="$GAME" python3 dm/gfx/tools/dmsh_chain.py --header
+              DM_GAME="$GAME" IOSOUT=w/shader/ios \
+                python3 dm/gfx/tools/dmsh_build.py w/shader/pkg w/shader/cache
+              MSL_PATH="$ROOT/w/shader/ios"
+            fi
             # build_ipa.sh copies c1_full.tsv and the replay layer trusts it only when its first line names this chain
             V=$(sed -n 's/^#define DMSH_CHAIN "\(.*\)"/\1/p' "dm/games/$GAME/dmsh_chain.h")
             python3 dm/gfx/tools/c1_guard.py "w/shader/cache/b-$V" "dm/games/$GAME/c1_full.tsv"
             OUT="$OUT_NAME"; [ -n "$OUT" ] || OUT="$(python3 dm/tools/nacp.py w/data/v0/control.nacp).ipa"
             case "$OUT" in /*) ;; *) OUT="$ROOT/$OUT" ;; esac
-            GAME="$GAME" W="$ROOT/w" PATCHED="$ROOT/w/build/patched_v0" ROMFS="$ROOT/w/data/v0/RomFS" MSL_IOS="$ROOT/w/shader/ios" AOC='' FONT_PY=python3 DM_HOST_ONLY="$HOST_ONLY_FLAG" DM_THIN_IPA="$THIN_FLAG" \
+            GAME="$GAME" W="$ROOT/w" PATCHED="$ROOT/w/build/patched_v0" ROMFS="$ROOT/w/data/v0/RomFS" MSL_IOS="$MSL_PATH" AOC='' FONT_PY=python3 DM_HOST_ONLY="$HOST_ONLY_FLAG" DM_THIN_IPA="$THIN_FLAG" \
               bash dm/ios/tools/build_ipa.sh "$OUT"
           }
           # on failure, echo the first error lines as annotations: they are readable without sign-in, the full log is not
