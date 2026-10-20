@@ -145,7 +145,9 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
     _ring[0].hidden = _knob[0].hidden = _rhythm;
     _ring[1].hidden = _knob[1].hidden = !_full || _rhythm;
     _swap.hidden = _swapLabel.hidden = _rhythm;
-    for (int i = 0; i < 10; i++) _rhythmLayer[i].hidden = !_rhythm || i < 2 || i >= 6;
+    uint64_t rh = _rhythm ? dm_rhythm_touch_get() : 0;
+    BOOL rhythmDpad = _rhythm && (int)(rh & 0xff) == 0 && (int)(rh >> 8 & 0xff) != 0;
+    for (int i = 0; i < 10; i++) _rhythmLayer[i].hidden = !_rhythm || i < 2 || (i >= 6 && !rhythmDpad);
     _swapLabel.string = _full ? @"3D" : @"2D";
     [CATransaction commit];
 }
@@ -363,13 +365,13 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
         _rhythmLayer[4].path = circlePath(CGPointMake(CGRectGetMinX(s)+116*u, top), 24*u);   // −
         _rhythmLayer[5].path = circlePath(CGPointMake(CGRectGetMaxX(s)-110*u, top), 24*u);   // +
         CGRect dpadArea = self.corner;
-        CGFloat cx = CGRectGetMinX(dpadArea) + 74*u, cy = CGRectGetMaxY(s) - 66*u, d = 38*u;
-        CGPoint pp[4] = {{cx-d,cy},{cx,cy-d},{cx+d,cy},{cx,cy+d}};   // lower and tighter so the whole cluster follows the thumb
-        for (int i = 0; i < 4; i++) _rhythmLayer[6+i].path = circlePath(pp[i], 19*u);
+        CGFloat cx = CGRectGetMinX(dpadArea) + 74*u, upY = CGRectGetMidY(self.bounds), d = 34*u;
+        CGPoint pp[4] = {{cx-d,upY+d},{cx,upY},{cx+d,upY+d},{cx,upY+2*d}};   // the up key starts on the screen's midline
+        for (int i = 0; i < 4; i++) _rhythmLayer[6+i].path = circlePath(pp[i], 17*u);
         for (int i = 0; i < 10; i++) {
             CGRect box = _rhythmLayer[i].path ? CGPathGetPathBoundingBox(_rhythmLayer[i].path) : CGRectZero;
-            CGFloat h = (i >= 6 ? 19 : 22) * u;
-            if (i >= 6) _rhythmText[i].fontSize = 16 * u;
+            CGFloat h = (i >= 6 ? 17 : 22) * u;
+            if (i >= 6) _rhythmText[i].fontSize = 14 * u;
             _rhythmText[i].frame = CGRectMake(box.origin.x, box.origin.y + (box.size.height - h) / 2, box.size.width, h);
         }
         return;

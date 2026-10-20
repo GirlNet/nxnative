@@ -26,12 +26,12 @@ static int active; static unsigned keys; static _Atomic uint64_t packed = L_MENU
 
 static unsigned keys_of(const char *s, size_t n) {
     for (size_t i=0;i<sizeof scenes/sizeof *scenes;i++) if (strlen(scenes[i].name)==n && !memcmp(scenes[i].name,s,n)) return scenes[i].keys;
-    return K_MANY;
+    return 0;
 }
 static uint64_t hint(void) {
     if (!active) return L_MENU;
     if (keys & K_SPELL) return L_ONE | (1ull<<8) | (uint64_t)(SHOW_DPAD|SHOW_X|SHOW_Y)<<24;
-    if (keys & K_MANY) return L_DPAD;
+    if (keys & K_MANY) return L_DPAD | (uint64_t)15<<8;
     unsigned d = keys & (K_LEFT|K_UP|K_RIGHT|K_DOWN);
     uint64_t r = L_DPAD | (uint64_t)((d&K_LEFT?1:0)|(d&K_UP?2:0)|(d&K_RIGHT?4:0)|(d&K_DOWN?8:0))<<8;
     if (d && (d&(d-1))) return r;
