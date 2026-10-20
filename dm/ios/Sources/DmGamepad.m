@@ -145,9 +145,7 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
     _ring[0].hidden = _knob[0].hidden = _rhythm;
     _ring[1].hidden = _knob[1].hidden = !_full || _rhythm;
     _swap.hidden = _swapLabel.hidden = _rhythm;
-    uint64_t rh = _rhythm ? dm_rhythm_touch_get() : 0;
-    BOOL rhythmDpad = _rhythm && (int)(rh & 0xff) == 0;
-    for (int i = 0; i < 10; i++) _rhythmLayer[i].hidden = !_rhythm || i < 2 || (i >= 6 && !rhythmDpad);
+    for (int i = 0; i < 10; i++) _rhythmLayer[i].hidden = !_rhythm || i < 2 || i >= 6;
     _swapLabel.string = _full ? @"3D" : @"2D";
     [CATransaction commit];
 }
