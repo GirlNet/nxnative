@@ -1585,7 +1585,13 @@ void mtl_mem_stat(unsigned long long frame, unsigned long long rss_mb) {
 }
 void mtl_pkg_stats(uint64_t *uploads, uint64_t *reuploads) { *uploads = g_pkg_uploads; *reuploads = g_pkg_reuploads; }
 uint64_t mtl_pkg_miss(void) { return g_pkg_miss; }
-void mtl_tex_release(tex_t *t) { if (t->serial) serial_del(t->serial); }
+void mtl_tex_release(tex_t *t) {
+    if (!t->serial) return;
+    // The texture-ID cache holds its view (or the base texture) strongly. Drop the views of this serial before deleting it, otherwise a texture ID
+    // the game no longer registers keeps the retired texture alive (Rhythm Heaven kept 400–500 MB after one remix).
+    treg_drop_serial_views(t->serial);
+    serial_del(t->serial);
+}
 
 // ---------- Render passes: SetRenderTargets opens a new pass; clears before the first command in the pass are folded into the load action ----------
 static struct {
