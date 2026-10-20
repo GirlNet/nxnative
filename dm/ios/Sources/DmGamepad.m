@@ -112,7 +112,16 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
         _swap = shape(self.layer); _swapLabel = label(_swap, @"");
         _rhythm = !strcmp(DM_GAME_ID, "0100D9F01D474000");
         static NSString *const rhythmNames[5] = {@"LEFT", @"A", @"Y", @"−", @"+"};
-        for (int i = 0; i < 5; i++) { _rhythmLayer[i] = shape(self.layer); _rhythmText[i] = label(_rhythmLayer[i], rhythmNames[i]); }
+        for (int i = 0; i < 5; i++) {
+            _rhythmLayer[i] = shape(self.layer);
+            _rhythmLayer[i].fillColor = [UIColor colorWithWhite:1 alpha:0.025].CGColor;
+            _rhythmLayer[i].strokeColor = [UIColor colorWithWhite:1 alpha:0.10].CGColor;
+            _rhythmLayer[i].lineWidth = 1;
+            _rhythmLayer[i].shadowOpacity = 0;
+            _rhythmText[i] = label(_rhythmLayer[i], i == 0 ? @"" : rhythmNames[i]);
+            _rhythmText[i].fontSize = 18;
+            _rhythmText[i].foregroundColor = [UIColor colorWithWhite:1 alpha:0.28].CGColor;
+        }
         NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
         _full = saved ? saved.boolValue : DM_GAME_PAD_FULL;
         [self applyLayout];
