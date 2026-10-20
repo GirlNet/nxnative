@@ -71,7 +71,7 @@ static __weak DmGamepad *g_view;
     BOOL _sticksShown;                             // a stick was held at the last refresh
     BOOL _full;                                    // the 3D layout is current
     BOOL _rhythm;
-    CAShapeLayer *_rhythmLayer[5]; CATextLayer *_rhythmText[5];
+    CAShapeLayer *_rhythmLayer[6]; CATextLayer *_rhythmText[6];
 }
 
 static UIColor *k_idle, *k_on, *k_line, *k_ringFill, *k_text, *k_textOn;
@@ -111,14 +111,14 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
         }
         _swap = shape(self.layer); _swapLabel = label(_swap, @"");
         _rhythm = !strcmp(DM_GAME_ID, "0100D9F01D474000");
-        static NSString *const rhythmNames[5] = {@"LEFT", @"A", @"Y", @"−", @"+"};
-        for (int i = 0; i < 5; i++) {
+        static NSString *const rhythmNames[6] = {@"LEFT", @"A", @"B", @"Y", @"−", @"+"};
+        for (int i = 0; i < 6; i++) {
             _rhythmLayer[i] = shape(self.layer);
             _rhythmLayer[i].fillColor = [UIColor colorWithWhite:1 alpha:0.025].CGColor;
             _rhythmLayer[i].strokeColor = [UIColor colorWithWhite:1 alpha:0.10].CGColor;
             _rhythmLayer[i].lineWidth = 1;
             _rhythmLayer[i].shadowOpacity = 0;
-            _rhythmText[i] = label(_rhythmLayer[i], i == 0 ? @"" : rhythmNames[i]);
+            _rhythmText[i] = label(_rhythmLayer[i], i < 2 ? @"" : rhythmNames[i]);
             _rhythmText[i].fontSize = 18;
             _rhythmText[i].foregroundColor = [UIColor colorWithWhite:1 alpha:0.28].CGColor;
         }
@@ -138,7 +138,7 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
     _ring[0].hidden = _knob[0].hidden = _rhythm;
     _ring[1].hidden = _knob[1].hidden = !_full || _rhythm;
     _swap.hidden = _swapLabel.hidden = _rhythm;
-    for (int i = 0; i < 5; i++) _rhythmLayer[i].hidden = !_rhythm || i < 2;
+    for (int i = 0; i < 6; i++) _rhythmLayer[i].hidden = !_rhythm || i < 2;
     _swapLabel.string = _full ? @"3D" : @"2D";
     [CATransaction commit];
 }
@@ -208,25 +208,28 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
     int layout = (int)(h & 0xff), first = (int)(h >> 8 & 0xff), second = (int)(h >> 16 & 0xff);
     CGRect s = self.safe; CGFloat u = self.u;
     if (p.y < CGRectGetMinY(s) + 62 * u) {
-        if (p.x < CGRectGetMinX(s) + 88 * u) return 1ull << B_Y;
+        if (p.x < CGRectGetMinX(s) + 70 * u) return 1ull << B_B;
+        if (p.x < CGRectGetMinX(s) + 140 * u) return 1ull << B_Y;
         if (p.x > CGRectGetMidX(s) + 25 * u && p.x < CGRectGetMidX(s) + 90 * u) return 1ull << B_PLUS;
         if (p.x < CGRectGetMidX(s) - 25 * u && p.x > CGRectGetMidX(s) - 90 * u) return 1ull << B_MINUS;
     }
     if (p.x >= CGRectGetMidX(s)) return 1ull << B_A;
     if (layout == 1) return first < 64 ? 1ull << first : 0;
     if (layout == 2) return 1ull << (p.x < CGRectGetMidX(s) - CGRectGetWidth(s) * 0.22 ? first : second);
-    CGFloat dx = p.x - CGRectGetMinX(s), dy = p.y - CGRectGetMidY(s);
+    CGFloat dx = p.x - CGRectGetMidX(s) * 0.5, dy = p.y - CGRectGetMidY(s);
     if (layout == 0) {
         unsigned mask = (unsigned)first;
         if (!mask) mask = 15;
-        if (dx < CGRectGetWidth(s) * 0.16 && (mask & 1)) return 1ull << B_LEFT;
-        if (dx > CGRectGetWidth(s) * 0.30 && (mask & 4)) return 1ull << B_RIGHT;
-        return dy < 0 ? ((mask & 2) ? 1ull << B_UP : 0) : ((mask & 8) ? 1ull << B_DOWN : 0);
+        static const unsigned dirBit[4] = {1, 2, 4, 8};   // left up right down
+        if ((mask & (mask - 1)) == 0) {
+            for (int i = 0; i < 4; i++) if (mask & dirBit[i])
+                return 1ull << (i == 0 ? B_LEFT : i == 1 ? B_UP : i == 2 ? B_RIGHT : B_DOWN);
+        }
+        int dir = fabs(dx) > fabs(dy) ? (dx < 0 ? 0 : 2) : (dy < 0 ? 1 : 3);
+        return (mask & dirBit[dir]) ? 1ull << (dir == 0 ? B_LEFT : dir == 1 ? B_UP : dir == 2 ? B_RIGHT : B_DOWN) : 0;
     }
     // menu: small left D-pad
-    if (dx < CGRectGetWidth(s) * 0.16) return 1ull << B_LEFT;
-    if (dx > CGRectGetWidth(s) * 0.30) return 1ull << B_RIGHT;
-    return dy < 0 ? 1ull << B_UP : 1ull << B_DOWN;
+    return fabs(dx) > fabs(dy) ? (dx < 0 ? 1ull << B_LEFT : 1ull << B_RIGHT) : (dy < 0 ? 1ull << B_UP : 1ull << B_DOWN);
 }
 - (CGPoint)knobOffset:(int)i {   // knob offset from the ring centre (clamped to the ring)
     if (!_stick[i]) return CGPointZero;
@@ -341,10 +344,11 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
         CGFloat top = CGRectGetMinY(s) + 30 * u;
         _rhythmLayer[0].path = CGPathCreateWithRoundedRect(CGRectMake(CGRectGetMinX(s)+12*u, CGRectGetMinY(s)+80*u, CGRectGetWidth(s)*0.42, CGRectGetHeight(s)-100*u), 24*u, 24*u, NULL);
         _rhythmLayer[1].path = CGPathCreateWithRoundedRect(CGRectMake(CGRectGetMidX(s)+8*u, CGRectGetMinY(s)+80*u, CGRectGetWidth(s)*0.46, CGRectGetHeight(s)-100*u), 32*u, 32*u, NULL);
-        _rhythmLayer[2].path = circlePath(CGPointMake(CGRectGetMinX(s)+88*u, top), 28*u);
-        _rhythmLayer[3].path = circlePath(CGPointMake(CGRectGetMidX(s)-58*u, top), 24*u);
-        _rhythmLayer[4].path = circlePath(CGPointMake(CGRectGetMidX(s)+58*u, top), 24*u);
-        for (int i = 0; i < 5; i++) _rhythmText[i].frame = _rhythmLayer[i].path ? CGPathGetPathBoundingBox(_rhythmLayer[i].path) : CGRectZero;
+        _rhythmLayer[2].path = circlePath(CGPointMake(CGRectGetMinX(s)+48*u, top), 24*u);
+        _rhythmLayer[3].path = circlePath(CGPointMake(CGRectGetMinX(s)+110*u, top), 24*u);
+        _rhythmLayer[4].path = circlePath(CGPointMake(CGRectGetMidX(s)-58*u, top), 24*u);
+        _rhythmLayer[5].path = circlePath(CGPointMake(CGRectGetMidX(s)+58*u, top), 24*u);
+        for (int i = 0; i < 6; i++) _rhythmText[i].frame = _rhythmLayer[i].path ? CGPathGetPathBoundingBox(_rhythmLayer[i].path) : CGRectZero;
         return;
     }
     CGFloat u = self.u;
