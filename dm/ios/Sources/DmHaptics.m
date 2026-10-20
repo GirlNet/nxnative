@@ -49,10 +49,14 @@ static float clamp01(float x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
         _engine.autoShutdownEnabled = YES;
         __weak DmHaptics *weakSelf = self;
         _engine.stoppedHandler = ^(__unused CHHapticEngineStoppedReason reason) {
-            dispatch_async(weakSelf->_queue, ^{ weakSelf->_running = NO; weakSelf->_player = nil; [weakSelf apply]; });
+            DmHaptics *owner = weakSelf;
+            if (!owner) return;
+            dispatch_async(owner->_queue, ^{ owner->_running = NO; owner->_player = nil; [owner apply]; });
         };
         _engine.resetHandler = ^{
-            dispatch_async(weakSelf->_queue, ^{ weakSelf->_running = NO; weakSelf->_player = nil; [weakSelf apply]; });
+            DmHaptics *owner = weakSelf;
+            if (!owner) return;
+            dispatch_async(owner->_queue, ^{ owner->_running = NO; owner->_player = nil; [owner apply]; });
         };
     }
     NSError *error = nil;
