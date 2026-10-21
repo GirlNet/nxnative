@@ -49,8 +49,8 @@ nvn_img_slots	8
 nvn_ssbo_bases	vs=0x110 ps=0x510 cs=0x310
 # Font and background textures are written straight into pool memory without a packaged layout
 guest_tex_upload	on
-# The menu popup replays 89 draws per frame and needs TBDR; heavy in-level scenes take the plain replay path instead.
-tbdr	menu
+# The complex menus and Beatspell both need TBDR; on-device checks cover their text and transition rendering.
+tbdr	on
 # Beatspell submits 46 command buffers per frame; CPU-side finish / sync waits made the A15 land at 30 fps despite only ~1 ms of submit work.
 beatspell_queue_wait	ordered
 
