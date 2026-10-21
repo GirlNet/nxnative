@@ -2558,7 +2558,7 @@ void mtl_prog_release(prog_t *p) { if (p->serial) serial_del(p->serial); }
 
 // ---------- Descriptor pool: texture ID / sampler ID → object ----------
 // At registration the whole texture object is snapshotted (NVN semantics: the descriptor has been written into the pool); view: the MTLTexture for that ID (a view or the base texture, held via CFBridgingRetain) and the serial-table / guest-write generations at the time it was obtained
-typedef struct { tex_t t; int ok; view_t v; int has_v; void *view, *view_holder; uint64_t view_id, view_rid, view_ser, view_dirty, view_base_rid, view_rev; uint8_t view_indep, view_holder_kind;
+typedef struct { tex_t t; int ok; view_t v; int has_v; void *view; __unsafe_unretained id view_holder; uint64_t view_id, view_rid, view_ser, view_dirty, view_base_rid, view_rev; uint8_t view_indep, view_holder_kind;
                  void *alt, *alt_of; uint64_t alt_rid; uint8_t alt_type;   // alt: compatible view used when the shader's declared type differs from view (tex_fit), alt_of = the view it was built from
                  void *ar, *ar_of; uint64_t ar_rid; } treg_t;              // ar: the alpha-from-red view for the profile's alpha_from_red shaders (tex_alpha_red), ar_of = the view it was built from
 static treg_t *g_treg; static int g_ntreg;
@@ -2655,7 +2655,7 @@ static id<MTLTexture> tex_by_id(int tid) {   // Caller holds g_rmu
         id<MTLTexture> cur = tex_mtl(&rp->t);
         if (cur == v || v.parentTexture == cur || (rp->view_indep && cur && cur.gpuResourceID._impl == rp->view_base_rid)) {
             id holder = serial_get(rp->t.serial);
-            rp->view_holder = (void *)holder;
+            rp->view_holder = holder;
             rp->view_holder_kind = [holder isKindOfClass:[NvPkg class]] ? 1 : [holder isKindOfClass:[NvLin class]] ? 2 : 0;
             rp->view_rev = rp->view_holder_kind == 1 ? ((NvPkg *)holder)->rev : rp->view_holder_kind == 2 ? ((NvLin *)holder)->rev : 0;
             rp->view_ser = sg; rp->view_dirty = dg; return v;
@@ -2716,7 +2716,7 @@ static id<MTLTexture> tex_by_id(int tid) {   // Caller holds g_rmu
     rp->view = (void *)CFBridgingRetain(v); rp->view_rid = v.gpuResourceID._impl; rp->view_ser = sg; rp->view_dirty = dg;
     rp->view_indep = alt != nil; rp->view_base_rid = base.gpuResourceID._impl;
     { id holder = serial_get(rp->t.serial);
-      rp->view_holder = (void *)holder;
+      rp->view_holder = holder;
       rp->view_holder_kind = [holder isKindOfClass:[NvPkg class]] ? 1 : [holder isKindOfClass:[NvLin class]] ? 2 : 0;
       rp->view_rev = rp->view_holder_kind == 1 ? ((NvPkg *)holder)->rev : rp->view_holder_kind == 2 ? ((NvLin *)holder)->rev : 0; }
     return v;
