@@ -65,7 +65,7 @@ jobs:
             else
               # the runner's Metal / spirv-cross differ from the committed tool lock: re-key the chain to the runner's tools
               dotnet publish dm/gfx/tools/dmsh_xlate/dmsh_xlate.csproj --configuration Release --output dm/gfx/tools/dmsh_xlate_bin
-              export DMSH_XLATE_SOURCE_SHA=$(python3 -c "import sys; sys.path.insert(0, 'dm/gfx/tools'); import dmsh_chain; print(dmsh_chain.xlate_source_sha())")
+              export DMSH_XLATE_SOURCE_SHA=$(DM_GAME="$GAME" python3 -c "import sys; sys.path.insert(0, 'dm/gfx/tools'); import dmsh_chain; print(dmsh_chain.xlate_source_sha())")
               DM_GAME="$GAME" python3 dm/gfx/tools/dmsh_chain.py --update-lock
               DM_GAME="$GAME" python3 dm/gfx/tools/dmsh_chain.py --header
               DM_GAME="$GAME" IOSOUT=w/shader/ios \
