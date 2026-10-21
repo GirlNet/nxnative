@@ -109,7 +109,8 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
         }
         _swap = shape(self.layer); _swapLabel = label(_swap, @"");
         _rhythm = !strcmp(DM_GAME_ID, "0100D9F01D474000");
-        static NSString *const rhythmNames[10] = {@"LEFT", @"A", @"B", @"Y", @"−", @"+", @"◀", @"▲", @"▶", @"▼"};
+        // Plain ASCII labels: the iPad UI font does not consistently provide geometric arrow glyphs.
+        static NSString *const rhythmNames[10] = {@"LEFT", @"A", @"B", @"Y", @"-", @"+", @"L", @"U", @"R", @"D"};
         for (int i = 0; i < 10; i++) {
             _rhythmLayer[i] = shape(self.layer);
             _rhythmLayer[i].fillColor = [UIColor colorWithWhite:1 alpha:0.025].CGColor;

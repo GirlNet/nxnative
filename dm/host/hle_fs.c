@@ -622,8 +622,9 @@ static uint32_t msbt_button_character(uint32_t cp) {
         case 0xE0A9: case 0xE0E9: return 0x24C7;   // SR
         case 0xE0B5: case 0xE0EF: return 0xFF0B;   // +
         case 0xE0B6: case 0xE0F0: return 0xFF0D;   // -
-        case 0xE0AB: return 0x2192; case 0xE0AC: return 0x2193;
-        case 0xE0AD: return 0x2191; case 0xE0AE: return 0x2190;
+        // Full-width L/U/R/D: guaranteed by the bundled CJK font, unlike Unicode arrow glyphs (boxes on some iPads). All are 3-byte UTF-8, preserving MSBT offsets.
+        case 0xE0AB: return 0xFF32; case 0xE0AC: return 0xFF24;
+        case 0xE0AD: return 0xFF35; case 0xE0AE: return 0xFF2C;
         case 0xE0C1: case 0xE101: return 0xFF2C; case 0xE0C2: case 0xE102: return 0xFF32;
         default: return 0;
     }
