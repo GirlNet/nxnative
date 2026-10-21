@@ -85,6 +85,8 @@ def header(g):
     tb = g.get('tbdr', 'off')   # TBDR replay optimizations (nvn_mtl.m): off by default; menu = only while Rhythm Heaven's graph state is not in a level
     if tb not in ('on', 'off', 'menu'): sys.exit(f'{g.id}: tbdr 只能是 on / off / menu | tbdr must be on, off or menu: {tb}')
     tbi = {'off': 0, 'on': 1, 'menu': 2}[tb]
+    qw = g.get('beatspell_queue_wait', 'sync')   # Beatspell submits 46 ordered command buffers per frame; ordered omits CPU waits that the single Metal queue already provides
+    if qw not in ('sync', 'ordered'): sys.exit(f'{g.id}: beatspell_queue_wait 只能是 sync / ordered | beatspell_queue_wait must be sync or ordered: {qw}')
     fbs = g.words('feedback_snap', '')   # fragment shader key prefixes whose same-pass feedback sampling gets a snapshot first (nvn_mtl.m fb_prepare); none by default
     if any(not re.fullmatch(r'[0-9a-f]{8,16}', k) for k in fbs): sys.exit(f'{g.id}: feedback_snap 要写片元着色器键（8–16 位小写十六进制）| feedback_snap takes fragment shader keys (8-16 lowercase hex digits): {fbs}')
     afr = g.words('alpha_from_red', '')   # fragment shader key prefixes that read single-channel textures mapped (R, 0, 0, 1) with alpha = red (nvn_mtl.m tex_alpha_red); none by default
@@ -117,6 +119,7 @@ def header(g):
          f'#define DM_GAME_GUEST_TEX_UPLOAD {int(gu == "on")}',
          f'#define DM_GAME_TILE_H {q(th)}',
          f'#define DM_GAME_TBDR {tbi}',
+         f'#define DM_GAME_BEATSPELL_QUEUE_WAIT_ORDERED {int(qw == "ordered")}',
          f'#define DM_GAME_FEEDBACK_SNAP {q(" ".join(fbs))}',
          f'#define DM_GAME_ALPHA_FROM_RED {q(" ".join(afr))}',
          f'#define DM_GAME_NVN_API_MAJOR {api.split(".")[0]}',

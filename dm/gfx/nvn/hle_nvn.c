@@ -420,9 +420,22 @@ NVN(nvnQueueWaitSync, NVNboolean, NVNqueue *q, const NVNsync *s) { (void)q; stat
 // ZCull data: the host does no ZCull, so there is nothing to save / restore
 NVN(nvnCommandBufferRestoreZCullData, void, NVNcommandBuffer *c, NVNbufferAddress a, size_t n) { (void)c; (void)a; (void)n; }
 NVN(nvnCommandBufferSaveZCullData, void, NVNcommandBuffer *c, NVNbufferAddress a, size_t n) { (void)c; (void)a; (void)n; }
+static int queue_wait_ordered(void) {
+    static int mode = -1;
+    if (mode < 0) {
+        const char *e = getenv("DM_NVN_QUEUE_WAIT");
+        mode = e ? (!strcmp(e, "ordered") ? 2 : 0) : DM_GAME_BEATSPELL_QUEUE_WAIT_ORDERED;
+    }
+    int on = mode == 2;
+    if (mode == 1) { extern int dm_rhythm_touch_spell(void) __attribute__((weak)); on = dm_rhythm_touch_spell && dm_rhythm_touch_spell(); }
+    static int logged;
+    if (on && !logged++) LOG("[nvn] Beatspell：单队列已保证顺序，省去 CPU 侧的 QueueFinish / SyncWait");
+    return on;
+}
 NVN(nvnSyncWait, NVNsyncWaitResult, const NVNsync *s, uint64_t timeout) {
     const sync_t *o = (const sync_t *)s;
     if (!o->fenced) return NVN_SYNC_WAIT_RESULT_TIMEOUT_EXPIRED;
+    if (queue_wait_ordered()) return NVN_SYNC_WAIT_RESULT_ALREADY_SIGNALED;
     if (mtl_wait(o->fence, 0)) return NVN_SYNC_WAIT_RESULT_ALREADY_SIGNALED;
     return mtl_wait(o->fence, timeout) ? NVN_SYNC_WAIT_RESULT_CONDITION_SATISFIED : NVN_SYNC_WAIT_RESULT_TIMEOUT_EXPIRED;
 }
@@ -465,7 +478,7 @@ NVN(nvnQueueGetError, NVNqueueGetErrorResult, NVNqueue *q, NVNqueueErrorInfo *in
     (void)q; if (info) memset(info, 0, sizeof *info); return NVN_QUEUE_GET_ERROR_RESULT_GPU_NO_ERROR;
 }
 NVN(nvnQueueFlush, void, NVNqueue *q) { (void)q; }
-NVN(nvnQueueFinish, void, NVNqueue *q) { (void)q; mtl_finish(); }
+NVN(nvnQueueFinish, void, NVNqueue *q) { (void)q; if (!queue_wait_ordered()) mtl_finish(); }
 
 // ---------- Command buffer: record into the game's command memory, perform CPU-visible side effects at submit ----------
 #define CB(c) ((cmd_t *)(c))

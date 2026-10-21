@@ -44,6 +44,7 @@ static uint64_t hint(void) {
 }
 uint64_t dm_rhythm_touch_get(void) { return atomic_load(&packed); }
 int dm_rhythm_touch_menu(void) { return atomic_load(&packed) == L_MENU; }
+int dm_rhythm_touch_spell(void) { uint64_t p = atomic_load(&packed); return (p & 0xff) == L_ONE && (p >> 24) == (SHOW_DPAD | SHOW_X | SHOW_Y); }
 void dm_rhythm_touch_note_path(const char *path) {
     const char *g = path ? strstr(path, ":/graph/") : NULL; if (!g) return;
     const char *top=g+8,*slash=strchr(top,'/'); if(!slash) return;
