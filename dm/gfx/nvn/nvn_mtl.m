@@ -1911,7 +1911,7 @@ static int udc_on(void) {
 //   command stream costs more to scan than it saves. The profile's 2 mode uses the graph-path state already maintained for Rhythm Heaven's touch layout.
 static _Atomic int g_tbdr_latch;
 static void tbdr_submit_begin(void) {
-    static int mode = -1; if (mode < 0) { const char *e = getenv("DM_NVN_TBDR"), *r = getenv("DM_NVN_RULER"); mode = e ? !strcmp(e, "1") : DM_GAME_TBDR; g_ruler_truth = r && !strcmp(r, "1"); if (!mode) MLOG("TBDR 优化关闭（游戏档案或 DM_NVN_TBDR 未开启）"); }
+    static int mode = -1; if (mode < 0) { const char *e = getenv("DM_NVN_TBDR"), *r = getenv("DM_NVN_RULER"); mode = e ? !strcmp(e, "1") : DM_GAME_TBDR; g_ruler_truth = r && !strcmp(r, "1"); MLOG("TBDR 优化默认=%d（%s）", mode, e ? "DM_NVN_TBDR" : "游戏档案"); }
     int on = mode == 1;
     if (mode == 2) { extern int dm_rhythm_touch_menu(void) __attribute__((weak)); on = dm_rhythm_touch_menu && dm_rhythm_touch_menu(); }
     atomic_store(&g_tbdr_latch, on && !g_ruler_truth);
