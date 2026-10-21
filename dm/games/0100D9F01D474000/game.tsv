@@ -49,6 +49,8 @@ nvn_img_slots	8
 nvn_ssbo_bases	vs=0x110 ps=0x510 cs=0x310
 # Font and background textures are written straight into pool memory without a packaged layout
 guest_tex_upload	on
+# This profile's menu popup replays 89 draws per frame; TBDR continuation cuts submit CPU from ~23 ms to <1 ms.
+tbdr	on
 
 # ---- Shader split (shader_split.py) ----
 # Source groups: a path containing the first part goes to the second group (first match wins; shaders embedded in main always go to main, no match goes to other)
