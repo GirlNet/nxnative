@@ -902,9 +902,9 @@ static __unsafe_unretained id serial_get(uint64_t k) { pthread_mutex_lock(&g_smu
 static void serial_put(uint64_t k, id o) { pthread_mutex_lock(&g_smu); id old = hm_get_id(&g_by_serial, &k); if (old) { if (alias_has(old)) defer_obj_unref(old); else defer_obj_release(old); } hm_put_id(&g_by_serial, &k, o); g_ser_gen++; pthread_mutex_unlock(&g_smu); }
 static void serial_del(uint64_t k) { pthread_mutex_lock(&g_smu); id old = hm_get_id(&g_by_serial, &k); if (old) { if (alias_has(old)) defer_obj_unref(old); else defer_obj_release(old); } hm_del_id(&g_by_serial, &k); g_ser_gen++; pthread_mutex_unlock(&g_smu); }
 // Host record of a packaged texture: the current MTLTexture, the upload stamp, and the global write generation at the last check
-@interface NvPkg : NSObject { @public id<MTLTexture> tex; uint64_t stamp, seen, hash; } @end   // hash: full hash of the uploaded content under DM_NVN_DIRTYCHECK
+@interface NvPkg : NSObject { @public id<MTLTexture> tex, ring[3]; unsigned ring_slot; uint64_t stamp, seen, hash; } @end   // hash: full hash of the uploaded content under DM_NVN_DIRTYCHECK
 @implementation NvPkg
-- (void)dealloc { res_remove(tex); }
+- (void)dealloc { for (unsigned i = 0; i < 3; i++) if (ring[i]) res_remove(ring[i]); }
 @end
 static uint64_t g_pkg_uploads, g_pkg_reuploads, g_pkg_miss;
 static uint64_t g_pfv_upgrades;
@@ -1466,11 +1466,11 @@ static id<MTLTexture> tex_mtl_(const tex_t *ct) {
                     MLOG("【红】脏页漏检：贴图 ser=%llu 池内容已变但未检出", t->serial);
                 return pk->tex;
             }
-            uint64_t st; id<MTLTexture> old = pk->tex;
-            id<MTLTexture> nt = pkg_upload(t, &st, old);   // Reuse the texture; the upload is ordered before this frame's draws on the same queue
+            unsigned next = (pk->ring_slot + 1) % 3;
+            uint64_t st; id<MTLTexture> nt = pkg_upload(t, &st, pk->ring[next]);   // A small ring avoids overwriting a texture still read by the previous frames
             if (nt) {
                 pk->tex = nt;
-                if (nt != old) defer_obj_release_serial(old, t->serial);
+                pk->ring[next] = nt; pk->ring_slot = next;
                 g_ser_gen++; pk->stamp = st; pk->seen = nvn_dirty_now(); g_pkg_reuploads++;
                 if (dirtycheck()) pk->hash = full_hash(t->mem, t->L.size);
             }
@@ -1479,6 +1479,7 @@ static id<MTLTexture> tex_mtl_(const tex_t *ct) {
         pk = [NvPkg new];
         pk->tex = pkg_upload(t, &pk->stamp, nil);
         if (!pk->tex) return nil;
+        pk->ring[0] = pk->tex;
         pk->seen = nvn_dirty_now(); g_pkg_uploads++; if (dirtycheck()) pk->hash = full_hash(t->mem, t->L.size);
         serial_put(t->serial, pk);
         return pk->tex;
