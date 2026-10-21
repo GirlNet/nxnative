@@ -44,6 +44,7 @@ static void path_unlock(pthread_mutex_t **m) { pthread_mutex_unlock(*m); }
 #define PATH_LOCK() pthread_mutex_t *path_guard __attribute__((cleanup(path_unlock))) = &g_path_lock; pthread_mutex_lock(path_guard)
 static uint8_t g_fmode[65536];              // fd → open mode
 static uint8_t g_fsave[65536];              // fd → whether it is on a transactional save mount (the save write injection point only counts these)
+static uint8_t g_fmsbt[65536];              // fd → game message table, replace private-use controller icons in each read
 static _Atomic int g_save_writes;           // number of writes on the save mount (shared by the injection point and the commit log)
 static _Atomic uint64_t g_txn_first_ns;     // time of this transaction's first save write (used by the commit log to report timing; cleared to 0 at commit)
 // Write failures are refused per transaction: on the real device save space is reserved when the save is created, overwrites cannot fail, and the game does not check the return values of WriteFile / SetFileSize either, it Commits as usual after a failure
@@ -598,6 +599,7 @@ HLE_FORCE("_ZN2nn2fs8OpenFileEPNS0_10FileHandleEPKci", "fsp-srv → open(2)", Re
     if (S_ISDIR(st.st_mode)) { close(fd); return RES_PATH_NOT_FOUND; }
     if (fd >= (int)sizeof g_fmode) die("fd 超出表");
     g_fmode[fd] = (uint8_t)mode; *out = (uint64_t)fd;
+    size_t path_len = strlen(path); g_fmsbt[fd] = path_len >= 5 && !strcasecmp(path + path_len - 5, ".msbt");
     g_hm[fd] = NULL; if (!(mode & (MODE_WRITE | MODE_APPEND))) dm_data_note_fd(fd, hp);
     { const char *c = strchr(path, ':'); size_t ln = c ? (size_t)(c - path) : 0; g_fsave[fd] = 0;
       for (int i = 0; c && i < g_nmnt; i++) if (strlen(g_mnt[i].name) == ln && !strncmp(g_mnt[i].name, path, ln)) g_fsave[fd] = g_mnt[i].commit[0] != 0; }
@@ -605,6 +607,39 @@ HLE_FORCE("_ZN2nn2fs8OpenFileEPNS0_10FileHandleEPKci", "fsp-srv → open(2)", Re
     if (g_fslog && fd < 4096) { pthread_mutex_lock(&g_fslog_lock); free(g_fdpath[fd]); g_fdpath[fd] = strdup(path); pthread_mutex_unlock(&g_fslog_lock); }
     if (g_flag.fs) LOG("fs open [%.2fs] %s mode=%d → fd %d", (now_ns() - g_t0_ns) / 1e9, path, mode, fd);
     return RES_OK;
+}
+static uint32_t msbt_button_character(uint32_t cp) {
+    switch (cp) {
+        case 0xE0A0: case 0xE0E0: return 0xFF21;   // A
+        case 0xE0A1: case 0xE0E1: return 0xFF22;   // B
+        case 0xE0A2: case 0xE0E2: return 0xFF38;   // X
+        case 0xE0A3: case 0xE0E3: return 0xFF39;   // Y
+        case 0xE0A4: case 0xE0E4: return 0xFF2C;   // L
+        case 0xE0A5: case 0xE0E5: return 0xFF32;   // R
+        case 0xE0A6: case 0xE0E6: return 0xFF2C;   // ZL
+        case 0xE0A7: case 0xE0E7: return 0xFF32;   // ZR
+        case 0xE0A8: case 0xE0E8: return 0x24C8;   // SL
+        case 0xE0A9: case 0xE0E9: return 0x24C7;   // SR
+        case 0xE0B5: case 0xE0EF: return 0xFF0B;   // +
+        case 0xE0B6: case 0xE0F0: return 0xFF0D;   // -
+        case 0xE0AB: return 0x2192; case 0xE0AC: return 0x2193;
+        case 0xE0AD: return 0x2191; case 0xE0AE: return 0x2190;
+        case 0xE0C1: case 0xE101: return 0xFF2C; case 0xE0C2: case 0xE102: return 0xFF32;
+        default: return 0;
+    }
+}
+static void msbt_replace_button_icons(void *buf, size_t n) {
+    uint8_t *p = buf;
+    for (size_t i = 0; i + 2 < n; ) {
+        if (p[i] == 0xEE && (p[i + 1] & 0xC0) == 0x80 && (p[i + 2] & 0xC0) == 0x80) {
+            uint32_t cp = ((uint32_t)(p[i] & 0x0F) << 12) | ((uint32_t)(p[i + 1] & 0x3F) << 6) | (p[i + 2] & 0x3F);
+            uint32_t out = msbt_button_character(cp);
+            if (out) {
+                p[i] = (uint8_t)(0xE0 | (out >> 12)); p[i + 1] = (uint8_t)(0x80 | ((out >> 6) & 0x3F)); p[i + 2] = (uint8_t)(0x80 | (out & 0x3F));
+            }
+        }
+        i++;
+    }
 }
 HLE_FORCE("_ZN2nn2fs8ReadFileEPmNS0_10FileHandleElPvm", "fsp-srv → pread(2)", Result, h_fs_ReadFile, size_t *out, uint64_t h, int64_t off, void *buf, size_t sz) {
     if (!h) { *out = 0; return RES_FAIL; }   // a file handle is an fd; 0 is stdin and never a file the game opened: the null handle the game keeps using after a failed open
@@ -616,6 +651,7 @@ HLE_FORCE("_ZN2nn2fs8ReadFileEPmNS0_10FileHandleElPvm", "fsp-srv → pread(2)", 
         if (r == 0) break;
         got += r;
     }
+    if ((int)h >= 0 && (int)h < 65536 && g_fmsbt[(int)h]) msbt_replace_button_icons(buf, got);
     *out = got;
     if (g_flag.bootprof) dm_prof_add(PROF_FS_READ, now_ns() - t0, got);
     if (g_fslog) { pthread_mutex_lock(&g_fslog_lock);
@@ -669,6 +705,7 @@ HLE_FORCE("_ZN2nn2fs9FlushFileENS0_10FileHandleE", "fsp-srv；宿主 write 已�
 HLE_FORCE("_ZN2nn2fs9CloseFileENS0_10FileHandleE", "fsp-srv → close(2)", void, h_fs_CloseFile, uint64_t h) {
     if (!h) return;   // the null handle after a failed open (see ReadFile): do not touch fd 0
     g_fmode[(int)h & 0xffff] = 0; g_fsave[(int)h & 0xffff] = 0;
+    g_fmsbt[(int)h & 0xffff] = 0;
     if ((int)h >= 0 && (int)h < 4096 && g_hm[(int)h]) { holemap *m = g_hm[(int)h]; g_hm[(int)h] = NULL; free(m->log); free(m->len); free(m->phys); free(m); }
     close((int)h); }
 HLE_FORCE("_ZN2nn2fs15GetFileOpenModeENS0_10FileHandleE", "fsp-srv；打开方式由宿主记录", int, h_fs_GetFileOpenMode, uint64_t h) { return g_fmode[(int)h & 0xffff]; }

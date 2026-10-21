@@ -168,6 +168,12 @@ int main(void) {
     CHECK(h_fs_MountSave("save", NULL) == RES_OK && write_save("save:/a", "ok3") == RES_OK && h_fs_Commit("save") == RES_OK, "去掉注入重新挂载：事务式照常，写 a=ok3 提交成功");
     snprintf(p, sizeof p, "%s/a", save); CHECK(same(p, "ok3"), "已提交 a = ok3");
 
+    {   // Game message button icons are private-use UTF-8. Replace them in place with equal-length readable glyphs so MSBT offsets stay valid.
+        uint8_t msg[] = {0xEE, 0x83, 0xB0, ' ', 0xE8, 0xB7, 0xB3, 0xE8, 0xBF, 0x87};   // U+E0F0 + " 跳过"
+        const uint8_t want[] = {0xEF, 0xBC, 0x8D, ' ', 0xE8, 0xB7, 0xB3, 0xE8, 0xBF, 0x87};   // fullwidth minus + " 跳过"
+        msbt_replace_button_icons(msg, sizeof msg);
+        CHECK(!memcmp(msg, want, sizeof msg), "MSBT 按键图标原位替换为文字");
+    }
 
     // Language switch rewriting the settings file (settings_lang_apply): expected values computed by hand from the rule -- only when it "does not match the switch" are Language / VoiceLanguage changed to 0 (English) or 8 (Simplified Chinese); other keys and other languages are untouched
     { extern int g_t_lang; char sd[1200], sf[1300], gotj[512]; snprintf(sd, sizeof sd, "%s/langt", root); mkdir(sd, 0755); snprintf(sf, sizeof sf, "%s/Settings", sd); mkdir(sf, 0755); snprintf(sf, sizeof sf, "%s/Settings/Settings.json", sd);
