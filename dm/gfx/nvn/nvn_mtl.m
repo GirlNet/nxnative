@@ -1508,7 +1508,7 @@ static id<MTLTexture> tex_mtl_(const tex_t *ct) {
     if (!mt && linear && t->mem && t->d.width && t->d.height && t->d.target == NVN_TEXTURE_TARGET_2D && t->d.levels <= 1 && !fmt_compressed(t->d.format)) {
         uint32_t pf = 0; uint8_t swz[4]; int bw, bh, bpb = nvn_fmt_bpb(t->d.format, &bw, &bh);
         size_t row = t->d.stride ? t->d.stride : (size_t)t->d.width * bpb;
-        if (nvn_fmt_to_mtl(t->d.format, &pf, swz) && pf && bpb && !bw && !bh) {   // CPU-visible copy for a linear texture Metal cannot alias
+        if (nvn_fmt_to_mtl(t->d.format, &pf, swz) && pf && bpb && bw == 1 && bh == 1) {   // CPU-visible copy for a linear texture Metal cannot alias
             MTLTextureDescriptor *d = tex_desc(t, 0);
             if (d) {
                 d.storageMode = MTLStorageModeShared;
