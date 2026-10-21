@@ -906,6 +906,10 @@ static void serial_del(uint64_t k) { pthread_mutex_lock(&g_smu); id old = hm_get
 @implementation NvPkg
 - (void)dealloc { for (unsigned i = 0; i < 3; i++) if (ring[i]) res_remove(ring[i]); }
 @end
+@interface NvLin : NSObject { @public id<MTLTexture> tex; uint64_t stamp, seen; } @end
+@implementation NvLin
+- (void)dealloc { if (tex) res_remove(tex); }
+@end
 static uint64_t g_pkg_uploads, g_pkg_reuploads, g_pkg_miss;
 static uint64_t g_pfv_upgrades;
 // DM_NVN_DIRTYCHECK=1 (diagnostic, compared against ground truth): fully hash the pool content on every use; changed but not detected by dirty-page tracking = a missed detection
@@ -1383,6 +1387,24 @@ static id<MTLTexture> tex_linear_view_upload(const tex_t *t, MTLPixelFormat pf, 
     res_add(mt);
     return mt;
 }
+static id<MTLTexture> tex_linear_copy(const tex_t *t, id<MTLTexture> reuse, uint64_t *stamp) {
+    uint32_t pf = 0; uint8_t swz[4]; int bw, bh, bpb = nvn_fmt_bpb(t->d.format, &bw, &bh);
+    size_t row = t->d.stride ? t->d.stride : (size_t)t->d.width * bpb;
+    if (!t->mem || !t->d.width || !t->d.height || t->d.target != NVN_TEXTURE_TARGET_2D || t->d.levels > 1 ||
+        fmt_compressed(t->d.format) || !nvn_fmt_to_mtl(t->d.format, &pf, swz) || !pf || !bpb || bw != 1 || bh != 1 ||
+        row * t->d.height > t->L.size) return nil;
+    MTLTextureDescriptor *d = tex_desc(t, 0); if (!d) return nil;
+    d.storageMode = MTLStorageModeShared;
+    id<MTLTexture> mt = reuse;
+    if (mt && (mt.width != d.width || mt.height != d.height || mt.pixelFormat != d.pixelFormat || mt.textureType != d.textureType))
+        mt = nil;
+    if (!mt) mt = [g_dev newTextureWithDescriptor:d];
+    if (!mt) return nil;
+    nvn_dirty_protect(t->mem, t->L.size);
+    *stamp = nvn_dirty_now();
+    [mt replaceRegion:MTLRegionMake2D(0, 0, t->d.width, t->d.height) mipmapLevel:0 withBytes:t->mem bytesPerRow:row];
+    return mt;
+}
 // CPU-written block-linear textures (WriteTexels): the game gave no packaged layout and changes the content from the CPU each frame (Engage's movie frames: a Y plane R8 + a UV plane RG8, WriteTexels every frame).
 // Only packaged textures used to be uploaded from guest memory, so such a texture became a GPU-only texture whose content stayed 0. Their serials are recorded and they resolve through the packaged path (upload + re-upload on dirty pages)
 static pthread_mutex_t g_cpu_tex_mu = PTHREAD_MUTEX_INITIALIZER; static CFMutableSetRef g_cpu_tex;
@@ -1484,6 +1506,29 @@ static id<MTLTexture> tex_mtl_(const tex_t *ct) {
         serial_put(t->serial, pk);
         return pk->tex;
     }
+    id linear_alias = linear ? tex_linear(t) : nil;
+    if (linear && !linear_alias) {
+        NvLin *ln = [have isKindOfClass:[NvLin class]] ? have : nil;
+        if (ln) {
+            uint64_t now = nvn_dirty_now();
+            int tracked = nvn_dirty_tracked(t->mem, t->L.size);
+            int clean = tracked && (now == ln->seen || !nvn_dirty_since(t->mem, t->L.size, ln->stamp));
+            ln->seen = now;
+            if (clean) return ln->tex;
+            uint64_t st; id<MTLTexture> nt = tex_linear_copy(t, ln->tex, &st);
+            if (nt) {
+                ln->tex = nt; ln->stamp = st; ln->seen = nvn_dirty_now(); g_ser_gen++;
+                res_add(nt);
+            }
+            return ln->tex;
+        }
+        uint64_t st; id<MTLTexture> mt = tex_linear_copy(t, nil, &st);
+        if (!mt) return nil;
+        res_add(mt);
+        ln = [NvLin new]; ln->tex = mt; ln->stamp = st; ln->seen = nvn_dirty_now();
+        serial_put(t->serial, ln);
+        return mt;
+    }
     if (have) return have;
     if (t->d.target == 10) {   // Buffer texture (TARGET_BUFFER): create the texture-buffer view directly on the memory pool buffer (zero copy; the GPU reads the pool's current content at execution time, same as NVN semantics)
         uint32_t pf = 0; uint8_t swz[4]; int bw, bh, bpb = nvn_fmt_bpb(t->d.format, &bw, &bh);
@@ -1505,23 +1550,7 @@ static id<MTLTexture> tex_mtl_(const tex_t *ct) {
     alias_key ak; memset(&ak, 0, sizeof ak); ak.pool = (uint64_t)(uintptr_t)t->pool; ak.off = t->off; ak.d = t->d;
     pthread_mutex_lock(&g_smu); __unsafe_unretained id shared = hm_get_id(&g_alias, &ak); pthread_mutex_unlock(&g_smu);
     if (shared) { serial_put(t->serial, shared); return shared; }
-    id<MTLTexture> mt = tex_linear(t);
-    if (!mt && linear && t->mem && t->d.width && t->d.height && t->d.target == NVN_TEXTURE_TARGET_2D && t->d.levels <= 1 && !fmt_compressed(t->d.format)) {
-        uint32_t pf = 0; uint8_t swz[4]; int bw, bh, bpb = nvn_fmt_bpb(t->d.format, &bw, &bh);
-        size_t row = t->d.stride ? t->d.stride : (size_t)t->d.width * bpb;
-        if (nvn_fmt_to_mtl(t->d.format, &pf, swz) && pf && bpb && bw == 1 && bh == 1) {   // CPU-visible copy for a linear texture Metal cannot alias
-            MTLTextureDescriptor *d = tex_desc(t, 0);
-            if (d) {
-                d.storageMode = MTLStorageModeShared;
-                mt = [g_dev newTextureWithDescriptor:d];
-                if (mt) {
-                    if (row * t->d.height <= t->L.size)
-                        [mt replaceRegion:MTLRegionMake2D(0, 0, t->d.width, t->d.height) mipmapLevel:0 withBytes:t->mem bytesPerRow:row];
-                    res_add(mt);
-                }
-            }
-        }
-    }
+    id<MTLTexture> mt = linear_alias;
     if (!mt) {
         MTLTextureDescriptor *d = tex_desc(t, 0);
         if (!d) return nil;
