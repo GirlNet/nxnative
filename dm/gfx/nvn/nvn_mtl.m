@@ -450,6 +450,7 @@ static zskip_zero g_zskip_zero[4096]; static int g_zskip_n, g_zskip_count;
 static zskip_zero g_zskip_cand[8]; static uint8_t g_zskip_cand_ok[8];
 static void zskip_clear(void);
 static int tbdr_on(void);
+static void tbdr_submit_begin(void);
 static id g_cb;
 static id<MTL4ComputeCommandEncoder> g_blit;
 static NSMutableArray<dispatch_block_t> *g_commit_blocks;
@@ -484,7 +485,7 @@ static void tex_evict_unused(uint64_t frame);
 
 static uint64_t g_sub_serial;   // Submission index (used by the parallel precompile's 'predict only once per submission')
 void mtl_sub_begin(void) {
-    mtl_init(); g_sub_serial++;
+    tbdr_submit_begin(); mtl_init(); g_sub_serial++;
     g_sub_pool = objc_autoreleasePoolPush();   // open before deferred release / residency changes / warm-up claiming: their autoreleased Metal objects belong to this submission
     if (tbdr_on() == 0 && g_ruler_pending) { g_ruler_truth = 0; g_ruler_pending = 0; MLOG("DM_NVN_RULER：切到被测模式"); }
     defer_drain();
@@ -1906,8 +1907,16 @@ static int udc_on(void) {
 // Diagnostic DM_NVN_TBDR=0: turns off all TBDR optimizations (store lookahead, load elision, same-target continuation, clear-only pass hoist, on-demand depth-stencil attach); replay takes the plainest 'attach all, load all, store all' path.
 // Only for equivalence comparison (the same replay run on / off, comparing the picture byte by byte), not a product configuration
 // Off by default because these optimizations infer read / write relations from "which textures are bound in texture slots", while some games use bindless textures (handles in uniform buffers, NVN_RB_TEXU),
-//   so the inference would miss readers - e.g. deciding an attachment is never read afterwards and not storing it. Profiles whose complete menu and gameplay paths have been checked may enable it.
-static int tbdr_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_NVN_TBDR"), *r = getenv("DM_NVN_RULER"); v = e ? !strcmp(e, "1") : DM_GAME_TBDR; g_ruler_truth = r && !strcmp(r, "1"); if (!v) MLOG("TBDR 优化关闭（游戏档案或 DM_NVN_TBDR 未开启）"); } return v && !g_ruler_truth; }
+//   so the inference would miss readers - e.g. deciding an attachment is never read afterwards and not storing it. A profile may enable it always, or only on its front-end pages when a heavy in-level
+//   command stream costs more to scan than it saves. The profile's 2 mode uses the graph-path state already maintained for Rhythm Heaven's touch layout.
+static _Atomic int g_tbdr_latch;
+static void tbdr_submit_begin(void) {
+    static int mode = -1; if (mode < 0) { const char *e = getenv("DM_NVN_TBDR"), *r = getenv("DM_NVN_RULER"); mode = e ? !strcmp(e, "1") : DM_GAME_TBDR; g_ruler_truth = r && !strcmp(r, "1"); if (!mode) MLOG("TBDR 优化关闭（游戏档案或 DM_NVN_TBDR 未开启）"); }
+    int on = mode == 1;
+    if (mode == 2) { extern int dm_rhythm_touch_menu(void) __attribute__((weak)); on = dm_rhythm_touch_menu && dm_rhythm_touch_menu(); }
+    atomic_store(&g_tbdr_latch, on && !g_ruler_truth);
+}
+static int tbdr_on(void) { return atomic_load(&g_tbdr_latch); }
 int dm_nvn_ruler_truth(void) { tbdr_on(); return g_ruler_truth; }   // Visual ruler ground-truth phase (host-side settings under test yield accordingly, e.g. the 3D render scale)
 static int rt_range_on(void) { static int v = -1; if (v < 0) { const char *e=getenv("DM_NVN_RT_RANGE"); v=e && !strcmp(e,"1"); } return v; }   // Narrow candidate, off by default
 static uint64_t g_sd_dead_bytes, g_sd_n_dead, g_sd_n_all;

@@ -43,6 +43,7 @@ static uint64_t hint(void) {
     return L_TWO | (uint64_t)b[0]<<8 | (uint64_t)b[1]<<16;
 }
 uint64_t dm_rhythm_touch_get(void) { return atomic_load(&packed); }
+int dm_rhythm_touch_menu(void) { return atomic_load(&packed) == L_MENU; }
 void dm_rhythm_touch_note_path(const char *path) {
     const char *g = path ? strstr(path, ":/graph/") : NULL; if (!g) return;
     const char *top=g+8,*slash=strchr(top,'/'); if(!slash) return;
