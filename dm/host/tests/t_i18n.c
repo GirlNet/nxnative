@@ -30,8 +30,8 @@ int main(int argc, char **argv) {
             { "de-DE", 0 }, { "es-ES", 0 }, { "es-419", 0 }, { "fr-CA", 0 }, { "it-IT", 0 }, { "ko-KR", 0 }, { "pl-PL", 0 }, { "ru-RU", 0 }, { "ja-JP", 0 }, { "pt-BR", 0 }, { "nl-NL", 0 }, { "ar", 0 }, { "zu-ZA", 0 } };
         for (unsigned i = 0; i < sizeof c / sizeof *c; i++) { char w[8], g[8]; snprintf(w, sizeof w, "%d", c[i].want); snprintf(g, sizeof g, "%d", dm_lang_from_tag(c[i].t)); expect(c[i].t, g, w); }
         static const struct { const char *tag, *code; } codes[] = {
-            { "en-US", "en-US" }, { "en-GB", "en-GB" }, { "zh-Hans-CN", "zh-CN" }, { "zh-Hant-TW", "zh-TW" },
-            { "yue-Hant-HK", "zh-TW" }, { "ja-JP", "ja" }, { "fr-CA", "fr-CA" }, { "fr-FR", "fr" },
+            { "en-US", "en-US" }, { "en-GB", "en-GB" }, { "zh-Hans-CN", "zh-Hans" }, { "zh-Hant-TW", "zh-Hant" },
+            { "yue-Hant-HK", "zh-Hant" }, { "ja-JP", "ja" }, { "fr-CA", "fr-CA" }, { "fr-FR", "fr" },
             { "de-DE", "de" }, { "it-IT", "it" }, { "es-ES", "es" }, { "es-MX", "es-419" }, { "ko-KR", "ko" },
             { "nl-NL", "nl" }, { "pt-BR", "pt-BR" }, { "pt-PT", "pt" }, { "ru-RU", "ru" }, { "ar", "en-US" },
         };

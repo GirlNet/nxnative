@@ -45,8 +45,8 @@ static int tag_has(const char *t, const char *part) {
 void dm_lang_code_from_tag(const char *t, char out[8]) {
     const char *code = "en-US";
     if (t && *t) {
-        if (tag_has(t, "zh")) code = tag_has(t, "hant") || tag_has(t, "-tw") || tag_has(t, "-hk") || tag_has(t, "-mo") ? "zh-TW" : "zh-CN";
-        else if (tag_has(t, "yue") || tag_has(t, "wuu") || tag_has(t, "cmn")) code = "zh-CN";
+        if (tag_has(t, "zh")) code = tag_has(t, "hant") || tag_has(t, "-tw") || tag_has(t, "-hk") || tag_has(t, "-mo") ? "zh-Hant" : "zh-Hans";
+        else if (tag_has(t, "yue") || tag_has(t, "wuu") || tag_has(t, "cmn")) code = "zh-Hans";
         else if (tag_has(t, "ja")) code = "ja";
         else if (tag_has(t, "fr")) code = tag_has(t, "ca") ? "fr-CA" : "fr";
         else if (tag_has(t, "de")) code = "de";
@@ -62,7 +62,7 @@ void dm_lang_code_from_tag(const char *t, char out[8]) {
 }
 void dm_sys_lang_code(char out[8]) {
     const char *e = getenv("DM_LANG");
-    if (e && *e) { dm_lang_code_from_tag(e, out); return; }
+    if (e && *e) { memset(out, 0, 8); strncpy(out, e, 7); return; }   // explicit overrides keep the exact code the user already selected
 #if TARGET_OS_IPHONE
     CFArrayRef a = CFLocaleCopyPreferredLanguages(); char tag[64] = {0};
     if (a) {
