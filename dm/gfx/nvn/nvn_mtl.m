@@ -1176,10 +1176,10 @@ static void up_blit_add(id<MTLBuffer> src, size_t off, size_t row, size_t image,
     g_up_blits[g_nup_blits++] = (up_blit){src, off, row, image, size, dst, slice, level};
 }
 
-static id<MTLTexture> pkg_upload_(const tex_t *t, uint64_t *stamp);
-static id<MTLTexture> pkg_upload(const tex_t *t, uint64_t *stamp) {
+static id<MTLTexture> pkg_upload_(const tex_t *t, uint64_t *stamp, id<MTLTexture> reuse);
+static id<MTLTexture> pkg_upload(const tex_t *t, uint64_t *stamp, id<MTLTexture> reuse) {
     struct timespec a, b; clock_gettime(CLOCK_MONOTONIC, &a);
-    id<MTLTexture> r = pkg_upload_(t, stamp);
+    id<MTLTexture> r = pkg_upload_(t, stamp, reuse);
     clock_gettime(CLOCK_MONOTONIC, &b); uint64_t d_ = (uint64_t)((b.tv_sec - a.tv_sec) * 1000000000ll + b.tv_nsec - a.tv_nsec);
     atomic_fetch_add(&g_upload_ns, d_); g_up_total_ns += d_;
     return r;
@@ -1189,13 +1189,19 @@ uint64_t mtl_upload_gpu_ns_take(void) { return atomic_exchange(&g_upload_gpu_ns,
 void mtl_create_stats(uint64_t *lib, uint64_t *pso) { *lib = g_bp_lib_n; *pso = g_bp_pso_n; }
 void mtl_create_ns(uint64_t *lib_ns, uint64_t *pso_ns) { *lib_ns = g_bp_lib_ns; *pso_ns = g_bp_pso_ns; }   // Cumulative time spent synchronously creating shader libraries / pipelines on the spot (the long-frame log takes the per-frame difference)
 uint64_t mtl_upload_bytes(void) { return g_bp_up_bytes; }   // Cumulative texture upload bytes
-static id<MTLTexture> pkg_upload_(const tex_t *t, uint64_t *stamp) {
+static id<MTLTexture> pkg_upload_(const tex_t *t, uint64_t *stamp, id<MTLTexture> reuse) {
     MTLTextureDescriptor *d = tex_desc(t, 1);
     if (!d) return nil;
-    id<MTLTexture> mt = [g_dev newTextureWithDescriptor:d];
+    id<MTLTexture> mt = reuse;
+    if (mt && (mt.width != d.width || mt.height != d.height || mt.depth != d.depth ||
+               mt.pixelFormat != d.pixelFormat || mt.textureType != d.textureType ||
+               mt.mipmapLevelCount != d.mipmapLevelCount || mt.arrayLength != d.arrayLength || mt.sampleCount != d.sampleCount))
+        mt = nil;
+    int created = mt == nil;
+    if (!mt) mt = [g_dev newTextureWithDescriptor:d];
     if (!mt) { RED_ONCE(2, "建 MTLTexture 失败 %ux%u 格式 %#x 目标 %d", t->d.width, t->d.height, t->d.format, t->d.target); return nil; }
     if (g_allocprof > 0) { static int n; if (n++ < 30 || n % 500 == 0) MLOG("新建贴图（%s）#%d ser=%llu %ux%ux%u 格式 %#x 目标 %d 级 %u 存储 %p", __func__, n, (unsigned long long)t->serial, t->d.width, t->d.height, t->d.depth, t->d.format, t->d.target, t->d.levels, (void *)t->mem); }
-    res_add(mt);   // Both first upload and re-upload register residency here (Metal 4 does not make resources resident automatically; a missed registration = GPU address page fault)
+    if (created) res_add(mt);   // Both first upload and re-upload register residency here (Metal 4 does not make resources resident automatically; a missed registration = GPU address page fault)
     nvn_dirty_protect(t->mem, t->L.size);
     *stamp = nvn_dirty_now();
     int bw, bh, bpb = nvn_fmt_bpb(t->d.format, &bw, &bh);
@@ -1460,12 +1466,18 @@ static id<MTLTexture> tex_mtl_(const tex_t *ct) {
                     MLOG("【红】脏页漏检：贴图 ser=%llu 池内容已变但未检出", t->serial);
                 return pk->tex;
             }
-            uint64_t st; id<MTLTexture> nt = pkg_upload(t, &st);   // Pool content changed (streamed assets written into the same storage): switch to a new texture; in-flight draws still read the old one
-            if (nt) { id<MTLTexture> old = pk->tex; pk->tex = nt; defer_obj_release_serial(old, t->serial); res_add(nt); g_ser_gen++; pk->stamp = st; pk->seen = nvn_dirty_now(); g_pkg_reuploads++; if (dirtycheck()) pk->hash = full_hash(t->mem, t->L.size); }
+            uint64_t st; id<MTLTexture> old = pk->tex;
+            id<MTLTexture> nt = pkg_upload(t, &st, old);   // Reuse the texture; the upload is ordered before this frame's draws on the same queue
+            if (nt) {
+                pk->tex = nt;
+                if (nt != old) defer_obj_release_serial(old, t->serial);
+                g_ser_gen++; pk->stamp = st; pk->seen = nvn_dirty_now(); g_pkg_reuploads++;
+                if (dirtycheck()) pk->hash = full_hash(t->mem, t->L.size);
+            }
             return pk->tex;
         }
         pk = [NvPkg new];
-        pk->tex = pkg_upload(t, &pk->stamp);
+        pk->tex = pkg_upload(t, &pk->stamp, nil);
         if (!pk->tex) return nil;
         pk->seen = nvn_dirty_now(); g_pkg_uploads++; if (dirtycheck()) pk->hash = full_hash(t->mem, t->L.size);
         serial_put(t->serial, pk);
@@ -1493,6 +1505,22 @@ static id<MTLTexture> tex_mtl_(const tex_t *ct) {
     pthread_mutex_lock(&g_smu); __unsafe_unretained id shared = hm_get_id(&g_alias, &ak); pthread_mutex_unlock(&g_smu);
     if (shared) { serial_put(t->serial, shared); return shared; }
     id<MTLTexture> mt = tex_linear(t);
+    if (!mt && linear && t->mem && t->d.width && t->d.height && t->d.target == NVN_TEXTURE_TARGET_2D && t->d.levels <= 1 && !fmt_compressed(t->d.format)) {
+        uint32_t pf = 0; uint8_t swz[4]; int bw, bh, bpb = nvn_fmt_bpb(t->d.format, &bw, &bh);
+        size_t row = t->d.stride ? t->d.stride : (size_t)t->d.width * bpb;
+        if (nvn_fmt_to_mtl(t->d.format, &pf, swz) && pf && bpb && !bw && !bh) {   // CPU-visible copy for a linear texture Metal cannot alias
+            MTLTextureDescriptor *d = tex_desc(t, 0);
+            if (d) {
+                d.storageMode = MTLStorageModeShared;
+                mt = [g_dev newTextureWithDescriptor:d];
+                if (mt) {
+                    if (row * t->d.height <= t->L.size)
+                        [mt replaceRegion:MTLRegionMake2D(0, 0, t->d.width, t->d.height) mipmapLevel:0 withBytes:t->mem bytesPerRow:row];
+                    res_add(mt);
+                }
+            }
+        }
+    }
     if (!mt) {
         MTLTextureDescriptor *d = tex_desc(t, 0);
         if (!d) return nil;
