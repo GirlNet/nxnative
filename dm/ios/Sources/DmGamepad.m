@@ -203,7 +203,7 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
 }
 - (int)rhythmDirectionAt:(CGPoint)p {   // the same left-half direction map used outside a level
     CGRect s = self.safe; CGFloat dx = p.x - CGRectGetMinX(s), dy = p.y - CGRectGetMidY(s);
-    if (dx < CGRectGetWidth(s) * 0.16) return B_LEFT;
+    if (dx < CGRectGetWidth(s) * 0.16) return dy < 0 ? B_LEFT : B_DOWN;
     if (dx > CGRectGetWidth(s) * 0.30) return B_RIGHT;
     return dy < 0 ? B_UP : B_DOWN;
 }
