@@ -1,8 +1,9 @@
 // nn::oe (application operating environment): on the real device the console state is queried through the am/oe services; the host gives fixed state directly.
 // oe::Initialize is in hle_sdkinit.c, not here.
-// Environment switches: DM_OPMODE=0 handheld / 1 console (default 1, corresponding to the console-mode render profile); DM_LANG=language code (default en-US).
+// Environment switches: DM_OPMODE=0 handheld / 1 console (default 1, corresponding to the console-mode render profile); DM_LANG overrides the system language.
 #include "hle.h"
 #include "dm_uiscreen.h"
+#include "dm_i18n.h"
 
 // The operation mode is runtime state (the front end can change it: iOS overheat downgrade switches to handheld): the single source is here, taken once from DM_OPMODE at startup, the environment variable is not read again afterwards
 #include <stdatomic.h>
@@ -252,10 +253,8 @@ HLE_FORCE("_ZN2nn2oe42SetOperationModeChangedNotificationEnabledEb", "运行模�
 HLE_FORCE("_ZN2nn2oe44SetPerformanceModeChangedNotificationEnabledEb", "性能模式变化通知开关", void, h_oe_SetPerfModeNtf, unsigned on) { g_ntf_perfmode = on & 0xff; }
 
 // nn::settings::LanguageCode = struct { char string[8]; }, 8 bytes returned by value in x0
-HLE_FORCE("_ZN2nn2oe18GetDesiredLanguageEv", "系统语言查询；按 DM_LANG 给值", uint64_t, h_oe_GetLang, void) {
-    const char *e = getenv("DM_LANG");
-    char code[8] = {0};
-    strncpy(code, e && *e ? e : "en-US", sizeof code - 1);
+HLE_FORCE("_ZN2nn2oe18GetDesiredLanguageEv", "系统语言查询；跟随系统语言", uint64_t, h_oe_GetLang, void) {
+    char code[8] = {0}; dm_sys_lang_code(code);
     uint64_t v; memcpy(&v, code, 8);
     return v;
 }

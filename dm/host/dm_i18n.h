@@ -6,6 +6,8 @@ extern _Atomic int g_dm_lang;                         // the original game's cur
 int dm_lang_index(void);                              // current language index of the original game (set by the game > settings file > system language on first install)
 int dm_lang_zh(void);                                 // 1 = our text uses Chinese (zhCN, zhTW); all other languages use English
 int dm_lang_from_tag(const char *tag);                // language tag (en-US / zh-Hant-TW / es-419 ...) → the original game's language index: Chinese / Chinese varieties = 8 zhCN, everything else = 0 enUS
+void dm_lang_code_from_tag(const char *tag, char out[8]); // BCP 47 tag → one of the Switch LanguageCode values used by the game
+void dm_sys_lang_code(char out[8]);                   // DM_LANG override, otherwise the first iOS preferred language; non-iOS defaults to en-US
 int dm_sys_lang(void);                                // system language → the original game's language index (DM_LANG > iOS preferred language > English)
 const char *dm_str(uint8_t *main_base, const char *key);   // text drawn inside the game: the original string lookup (the table is appended to the original ui.json and switches language together with the original game)
 const char *dm_ui(const char *key);                   // text drawn outside the game (UIKit / asset download page / bottom-bar glyphs): compile-time table, picked by dm_lang_zh()

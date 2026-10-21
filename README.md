@@ -81,7 +81,7 @@ The IPA appears in the same folder (here `~/Games/MarioWonder/SMBWMobile.ipa`). 
 
 A connected game controller hides the touch controls and keeps every button.
 
-- **Game language** is English by default. For Chinese, add the line `DM_LANG=zh-Hans` to `Documents/env.txt`.
+- **Game language** follows the iOS preferred language by default. To override it, add `DM_LANG=en-US`, `DM_LANG=ja`, `DM_LANG=zh-CN` (or another supported system code) to `Documents/env.txt`.
 - **Saves and logs** are in the Files app, under the app's name: `save/` and `log.txt`. When something goes wrong, send `log.txt` (the previous run is `log.prev.txt`).
 - **Short stutters** the first time a new scene appears are normal: the app compiles graphics for it once and remembers them for the next launch.
 - **Reinstalling:** some sideloading tools give a reinstalled app a new data folder. Copy `save/` and `pso_user.tsv` over from the old one to keep your progress.
@@ -184,7 +184,7 @@ IPA 会出现在同一个文件夹里（这里是 `~/Games/MarioWonder/SMBWMobil
 
 连上游戏手柄后，触屏按键会隐藏，手柄上的所有按键都能用。
 
-- **游戏语言**默认英文。想用中文，在 `Documents/env.txt` 里加一行 `DM_LANG=zh-Hans`。
+- **游戏语言**默认跟随 iOS 的首选语言。需要手动指定时，在 `Documents/env.txt` 里加 `DM_LANG=en-US`、`DM_LANG=ja`、`DM_LANG=zh-CN` 等系统语言代码。
 - **存档和日志**在「文件」App 里，App 名字对应的文件夹下：`save/` 和 `log.txt`。出问题时请发 `log.txt`（上一次运行的是 `log.prev.txt`）。
 - **第一次进新场景时短暂卡顿**是正常的：App 会为它编译一次图形，下次启动就记住了。
 - **重装：** 有些侧载工具重装后会给 App 一个新的数据文件夹。把旧文件夹里的 `save/` 和 `pso_user.tsv` 拷过去，进度就不会丢。

@@ -37,6 +37,44 @@ int dm_lang_from_tag(const char *t) {
     for (unsigned k = 0; k < sizeof zh / sizeof *zh; k++) if (!strcmp(l, zh[k])) return 8;
     return 0;
 }
+static int tag_has(const char *t, const char *part) {
+    char lower[64]; size_t n = 0;
+    for (; t && *t && n + 1 < sizeof lower; t++) lower[n++] = (char)(*t | 0x20);
+    lower[n] = 0; return strstr(lower, part) != NULL;
+}
+void dm_lang_code_from_tag(const char *t, char out[8]) {
+    const char *code = "en-US";
+    if (t && *t) {
+        if (tag_has(t, "zh")) code = tag_has(t, "hant") || tag_has(t, "-tw") || tag_has(t, "-hk") || tag_has(t, "-mo") ? "zh-TW" : "zh-CN";
+        else if (tag_has(t, "yue") || tag_has(t, "wuu") || tag_has(t, "cmn")) code = "zh-CN";
+        else if (tag_has(t, "ja")) code = "ja";
+        else if (tag_has(t, "fr")) code = tag_has(t, "ca") ? "fr-CA" : "fr";
+        else if (tag_has(t, "de")) code = "de";
+        else if (tag_has(t, "it")) code = "it";
+        else if (tag_has(t, "es")) code = tag_has(t, "-es") ? "es" : "es-419";
+        else if (tag_has(t, "ko")) code = "ko";
+        else if (tag_has(t, "nl")) code = "nl";
+        else if (tag_has(t, "pt")) code = tag_has(t, "br") ? "pt-BR" : "pt";
+        else if (tag_has(t, "ru")) code = "ru";
+        else if (tag_has(t, "en")) code = tag_has(t, "gb") ? "en-GB" : "en-US";
+    }
+    memset(out, 0, 8); strncpy(out, code, 7);
+}
+void dm_sys_lang_code(char out[8]) {
+    const char *e = getenv("DM_LANG");
+    if (e && *e) { dm_lang_code_from_tag(e, out); return; }
+#if TARGET_OS_IPHONE
+    CFArrayRef a = CFLocaleCopyPreferredLanguages(); char tag[64] = {0};
+    if (a) {
+        if (CFArrayGetCount(a) > 0)
+            CFStringGetCString((CFStringRef)CFArrayGetValueAtIndex(a, 0), tag, sizeof tag, kCFStringEncodingUTF8);
+        CFRelease(a);
+    }
+    dm_lang_code_from_tag(tag, out);
+#else
+    dm_lang_code_from_tag("en-US", out);
+#endif
+}
 // Language on first install (no settings file yet): by the first entry of the iOS preferred languages (CFLocaleCopyPreferredLanguages, through dm_lang_from_tag: Chinese and Sinitic varieties → Simplified Chinese, everything else → English).
 // It used to be always Simplified Chinese (back then the touch version had no way to change the language, and a Chinese player whose system was in English got the English version on a fresh install and could not change it back); the Custom page title row now has a language switch (dm_custom.c lang_en), so this is opened up.
 // DM_LANG (host / test simulation, same as hle_oe.c) takes priority; a non-iOS host has no system language to ask and uses English, the default game language

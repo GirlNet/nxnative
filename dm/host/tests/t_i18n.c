@@ -28,7 +28,14 @@ int main(int argc, char **argv) {
         static const struct { const char *t; int want; } c[] = { { "en-US", 0 }, { "en-GB", 0 }, { "zh-Hans-CN", 8 }, { "zh-Hans", 8 }, { "zh", 8 }, { "zh-Hans-HK", 8 }, { "zh-Hans-TW", 8 }, { "zh-Hans-MO", 8 },
             { "zh-Hant-TW", 8 }, { "zh-Hant-HK", 8 }, { "zh-Hant", 8 }, { "zh-HK", 8 }, { "zh_TW", 8 }, { "yue-Hant-HK", 8 }, { "yue-Hans-CN", 8 }, { "yue", 8 }, { "wuu-Hans-CN", 8 },
             { "de-DE", 0 }, { "es-ES", 0 }, { "es-419", 0 }, { "fr-CA", 0 }, { "it-IT", 0 }, { "ko-KR", 0 }, { "pl-PL", 0 }, { "ru-RU", 0 }, { "ja-JP", 0 }, { "pt-BR", 0 }, { "nl-NL", 0 }, { "ar", 0 }, { "zu-ZA", 0 } };
-        for (unsigned i = 0; i < sizeof c / sizeof *c; i++) { char w[8], g[8]; snprintf(w, sizeof w, "%d", c[i].want); snprintf(g, sizeof g, "%d", dm_lang_from_tag(c[i].t)); expect(c[i].t, g, w); } }
+        for (unsigned i = 0; i < sizeof c / sizeof *c; i++) { char w[8], g[8]; snprintf(w, sizeof w, "%d", c[i].want); snprintf(g, sizeof g, "%d", dm_lang_from_tag(c[i].t)); expect(c[i].t, g, w); }
+        static const struct { const char *tag, *code; } codes[] = {
+            { "en-US", "en-US" }, { "en-GB", "en-GB" }, { "zh-Hans-CN", "zh-CN" }, { "zh-Hant-TW", "zh-TW" },
+            { "yue-Hant-HK", "zh-TW" }, { "ja-JP", "ja" }, { "fr-CA", "fr-CA" }, { "fr-FR", "fr" },
+            { "de-DE", "de" }, { "it-IT", "it" }, { "es-ES", "es" }, { "es-MX", "es-419" }, { "ko-KR", "ko" },
+            { "nl-NL", "nl" }, { "pt-BR", "pt-BR" }, { "pt-PT", "pt" }, { "ru-RU", "ru" }, { "ar", "en-US" },
+        };
+        for (unsigned i = 0; i < sizeof codes / sizeof *codes; i++) { char g[8]; dm_lang_code_from_tag(codes[i].tag, g); expect(codes[i].tag, g, codes[i].code); } }
     else if (!strcmp(mode, "game")) {   // the settings file says English, then the game switches back to Simplified Chinese: the game wins; then switch to zhTW (9): everything other than Simplified Chinese is English
         expect("游戏没设前按设置文件", dm_ui("dmConfirm"), "OK");
         atomic_store(&g_dm_lang, 8); expect("游戏切到 zhCN", dm_ui("dmConfirm"), "确定");
