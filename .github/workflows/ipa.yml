@@ -64,6 +64,7 @@ jobs:
               MSL_PATH="$ROOT/hostonly-msl"
             else
               # the runner's Metal / spirv-cross differ from the committed tool lock: re-key the chain to the runner's tools
+              dotnet publish dm/gfx/tools/dmsh_xlate/dmsh_xlate.csproj --configuration Release --output dm/gfx/tools/dmsh_xlate_bin
               DM_GAME="$GAME" python3 dm/gfx/tools/dmsh_chain.py --update-lock
               DM_GAME="$GAME" python3 dm/gfx/tools/dmsh_chain.py --header
               DM_GAME="$GAME" IOSOUT=w/shader/ios \
