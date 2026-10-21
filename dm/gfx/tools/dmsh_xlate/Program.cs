@@ -105,8 +105,18 @@ static class SwshXlate
     {
         if (args.Length == 1 && args[0] == "--source-sha")   // 嵌入的 Program.cs + csproj 的 sha256 前 16 位（dmsh_chain.py 同口径） | first 16 digits of the sha256 of the embedded Program.cs + csproj (same convention as dmsh_chain.py)
         {
-            var asm = typeof(SwshXlate).Assembly; var ms = new MemoryStream();
-            foreach (var n in new[] { "src0", "src1" }) asm.GetManifestResourceStream(n).CopyTo(ms);
+            var asm = typeof(SwshXlate).Assembly; var ms = new MemoryStream(); var names = asm.GetManifestResourceNames();
+            foreach (var want in new[] { "src0", "src1" })
+            {
+                var name = Array.Find(names, n => n == want || n.EndsWith("." + want));
+                var stream = name == null ? null : asm.GetManifestResourceStream(name);
+                if (stream == null)
+                {
+                    Console.Error.WriteLine($"missing embedded source {want}; resources: {string.Join(", ", names)}");
+                    return 2;
+                }
+                stream.CopyTo(ms);
+            }
             Console.WriteLine(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(ms.ToArray()))[..16].ToLowerInvariant());
             return 0;
         }
