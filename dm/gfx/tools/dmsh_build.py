@@ -558,6 +558,8 @@ def xl(ch):
 with cf.ThreadPoolExecutor(NJ) as ex: xr = list(ex.map(xl, [c for c in chunks if c]))
 xerr = {}
 for r in xr:
+    if r.returncode:
+        print(f'【红】翻译器进程返回 {r.returncode}：{r.stderr.strip()[:1600]}')
     for ln in r.stderr.splitlines():
         m = re.match(r'【红】(\w+)：(.*)', ln)
         if m: xerr[m.group(1)] = m.group(2)[:160]
