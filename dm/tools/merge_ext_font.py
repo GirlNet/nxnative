@@ -16,6 +16,13 @@ def main() -> None:
     standard_path, extension_path, output_path = sys.argv[1:]
     standard = TTFont(standard_path)
     extension = TTFont(extension_path)
+    # Keep existing text glyphs (including Unicode arrows) in the standard font.
+    # The icon-only font retains its aliases; removing overlaps only in this
+    # merge input also avoids conflicting cmap/GSUB substitutions in fontTools.
+    existing = set(standard.getBestCmap())
+    for table in extension["cmap"].tables:
+        if table.isUnicode():
+            table.cmap = {cp: name for cp, name in table.cmap.items() if cp not in existing}
     target_upem = standard["head"].unitsPerEm
     if extension["head"].unitsPerEm != target_upem:
         scale_upem(extension, target_upem)

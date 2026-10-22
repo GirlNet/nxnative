@@ -622,10 +622,10 @@ static uint32_t msbt_button_character(uint32_t cp) {
         case 0xE0A9: case 0xE0E9: return 0x24C7;   // SR
         case 0xE0B5: case 0xE0EF: return 0xFF0B;   // +
         case 0xE0B6: case 0xE0F0: return 0xFF0D;   // -
-        // Both private-use direction ranges use full-width L/U/R/D from the bundled CJK font.
+        // Both private-use direction ranges use arrows present in the game's text fonts and shared-font stand-ins.
         // All are 3-byte UTF-8, preserving MSBT offsets; the E0EB..E0EE aliases occur in gameplay prompts.
-        case 0xE0AB: case 0xE0EB: return 0xFF32; case 0xE0AC: case 0xE0EC: return 0xFF24;
-        case 0xE0AD: case 0xE0ED: return 0xFF35; case 0xE0AE: case 0xE0EE: return 0xFF2C;
+        case 0xE0AB: case 0xE0EB: return 0x2192; case 0xE0AC: case 0xE0EC: return 0x2193;
+        case 0xE0AD: case 0xE0ED: return 0x2191; case 0xE0AE: case 0xE0EE: return 0x2190;
         case 0xE0C1: case 0xE101: return 0xFF2C; case 0xE0C2: case 0xE102: return 0xFF32;
         default: return 0;
     }

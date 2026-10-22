@@ -16,6 +16,7 @@ Block linear is how the Tegra X1 GPU stores textures: the data is not one row af
 | `nvn_deswizzle.h`, `nvn_deswizzle.c` | `nvn_deswizzle()`: deswizzles one level and one layer from block linear to linear; `nvn_swizzle()`: the reverse, used for round trips in unit tests; `nvn_bl_offset()`: the block-linear address of a single point. Pure C |
 | `nvn_deswizzle_gpu.h`, `nvn_deswizzle_gpu.m` | A Metal compute shader version of the same deswizzling algorithm, used by the replay layer when uploading packaged textures; when initialization fails or an unsupported format is encountered, the replay layer falls back to the CPU version |
 | `nvn_bcdec.h`, `nvn_bcdec.c` | `nvn_bc_unpacked()` / `nvn_bc_decode()`: decompress BC textures on the CPU into uncompressed formats; decoding uses `dm/third_party/bcdec` |
+| `nvn_bcd_msl.h`, `nvn_bc7_msl.inc` | Runtime BC1-5 / BC7 upload shader; BC7 is adapted from the vendored bcdec under its Unlicense option. `make_bc7_msl.py --check` verifies the generated source |
 | `tests/` | Unit tests |
 
 The offsets of each level and layer within the storage, and the block height and block depth actually used by each level, are all taken from `../nvn/nvn_tex.c` (`nvn_tex_layout`, `nvn_tex_level_offset`, `nvn_tex_level_tiles`); this directory only does addressing and moving within a level. The game's packaged textures carry their own layout parameters, whose byte 0 is the log2 of the level 0 block height; when it is present it takes precedence (the `pkg_block_h` field of `nvn_texdesc`).
@@ -25,9 +26,13 @@ The offsets of each level and layer within the storage, and the block height and
 Some older Apple GPUs do not support BC compressed textures (determined by `supportsBCTextureCompression` of `MTLDevice`). On these devices:
 
 - the game's textures can be converted to ASTC format offline in advance with an optional supplementary pack (`dm/tools/astc_pack.py`; for dependencies see the "Optional" section of `docs/DEPENDENCIES.md`);
-- the remaining BC textures are created by the replay layer in their decompressed format and decompressed at upload; decompression on the CPU goes through `nvn_bcdec.c` in this directory.
+- the remaining BC textures are created by the replay layer in their decompressed format. BC1-5 and BC7 uploads use GPU deswizzling and decoding; BC6H, 3D textures and unsupported paths fall back to `nvn_bcdec.c` on the CPU.
+
+BC7 GPU uploads avoid repeatedly decoding large UI atlases on the submit thread. On an A15 iPad, the old CPU upload path took about 40 ms for a 26.7 MB atlas and 300 ms for 160.5 MB during a page change. These are baseline upload-path measurements; the replacement needs device timing after sideloading.
 
 The environment variable `DM_TEST_NO_BC=1` forces this path on any machine.
+
+`make -C dm/gfx/tests GAME=<title ID> t_bcd_gpu` builds a byte-for-byte comparison against bcdec. The test covers all eight BC7 modes, all partition patterns, rotation and index selection, invalid blocks, sRGB views, non-multiple-of-four edges and a 7232x832 atlas through both Metal 3 and Metal 4.
 
 ## Tests
 

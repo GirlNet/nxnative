@@ -120,8 +120,10 @@ def build(out, letter_font):
     glyph('btnPlus', [0xE0B5, 0xE0EF], 1000, sign(False)); glyph('btnMinus', [0xE0B6, 0xE0F0], 1000, sign(True))
     glyph('dpad', [0xE0EA], 1000, dpad(None))
     for c, dr in [(0xE0AB, 'right'), (0xE0AC, 'down'), (0xE0AD, 'up'), (0xE0AE, 'left')]: glyph('dpad_' + dr, [c, c + 0x40], 1000, dpad(dr))
+    # Message direction replacements must also work when the game selects the icon-only shared font.
+    unicode_arrows = {'right': 0x2192, 'left': 0x2190, 'up': 0x2191, 'down': 0x2193}
     for c, (nm, deg) in zip(range(0xE090, 0xE098), [('right', 0), ('left', 180), ('up', 90), ('down', 270), ('rightup', 45), ('rightdown', 315), ('leftdown', 225), ('leftup', 135)]):
-        glyph('arrow_' + nm, [c], 1000, arrow(deg))
+        glyph('arrow_' + nm, [c] + ([unicode_arrows[nm]] if nm in unicode_arrows else []), 1000, arrow(deg))
     glyph('stick', [0xE100], 1000, stick(None)); glyph('stickL', [0xE101, 0xE0C1], 1000, stick('L')); glyph('stickR', [0xE102, 0xE0C2], 1000, stick('R'))
     glyph('gamepad', [0xE127], 1000, gamepad())
 

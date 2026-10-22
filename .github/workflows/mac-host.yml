@@ -24,6 +24,12 @@ jobs:
           make -C dm/host GAME=0100D9F01D474000 gen/0100D9F01D474000/game_profile.h
           make -C dm/host/tests GAME=0100D9F01D474000 build/t_fs
           dm/host/tests/build/t_fs
+      - name: Test BC7 GPU uploads
+        run: |
+          python3 dm/gfx/tex/make_bc7_msl.py --check
+          make -C dm/gfx/tests GAME=0100D9F01D474000 t_bcd_gpu t_deswz_gpu
+          MTL_DEBUG_LAYER=1 dm/gfx/tests/t_bcd_gpu
+          dm/gfx/tests/t_deswz_gpu
       - name: Build dmhost for every game profile
         run: |
           build() {

@@ -10,7 +10,7 @@ GAME_DIR = ../../games/$(GAME)
 GAME_H = ../../host/gen/$(GAME)/game_profile.h
 CFLAGS=-O1 -g -Wall -Wno-unused-function -I../nvn/include -I$(dir $(GAME_H)) -I$(GAME_DIR)
 GFX=$(filter-out ../nvn/hle_nvn.c,$(sort $(wildcard ../nvn/*.c ../nvn/*.m ../nvn/*.S ../tex/*.c ../tex/*.m)))
-GFX_H=$(wildcard ../nvn/*.h ../nvn/*.inc ../nvn/include/*.h ../tex/*.h) $(GAME_H) $(GAME_DIR)/dmsh_chain.h
+GFX_H=$(wildcard ../nvn/*.h ../nvn/*.inc ../nvn/include/*.h ../tex/*.h ../tex/*.inc) $(GAME_H) $(GAME_DIR)/dmsh_chain.h
 .DEFAULT_GOAL := t_nvn   # the profile header rule comes first, so keep the default goal as before
 $(GAME_H):
 	$(MAKE) -C ../../host game_profile GAME=$(GAME)
@@ -26,6 +26,9 @@ t_builtin: t_builtin.m ../nvn/nvn_builtin.h
 	clang -O1 -g -Wall -fobjc-arc -o $@ t_builtin.m -framework Metal -framework Foundation
 t_deswz_gpu: t_deswz_gpu.m ../tex/nvn_deswizzle.c ../tex/nvn_deswizzle_gpu.m ../tex/nvn_deswizzle.h ../tex/nvn_deswizzle_gpu.h ../nvn/nvn_tex.c ../nvn/nvn_tex.h
 	clang $(CFLAGS) -fobjc-arc -o $@ t_deswz_gpu.m ../tex/nvn_deswizzle.c ../tex/nvn_deswizzle_gpu.m ../nvn/nvn_tex.c -framework Metal -framework Foundation
+
+t_bcd_gpu: t_bcd_gpu.m ../tex/nvn_bcdec.c ../tex/nvn_bcdec.h ../tex/nvn_bcd_msl.h ../tex/nvn_bc7_msl.inc ../../third_party/bcdec/bcdec.h
+	clang $(CFLAGS) -O2 -fobjc-arc -o $@ t_bcd_gpu.m ../tex/nvn_bcdec.c -framework Metal -framework Foundation
 t_refl: t_refl.m ../nvn/nvn_refl.m ../nvn/nvn_refl.h $(GAME_DIR)/dmsh_chain.h
 	clang -O1 -g -Wall -I$(GAME_DIR) -fobjc-arc -o $@ t_refl.m ../nvn/nvn_refl.m -framework Metal -framework Foundation
 t_hmap: t_hmap.c ../nvn/nvn_hmap.h
@@ -62,12 +65,13 @@ t_pso_skey: t_pso_skey.m ../nvn/nvn_pso_skey.h ../nvn/nvn_obj.h
 	clang $(CFLAGS) -fobjc-arc -o $@ t_pso_skey.m -framework Foundation
 t_pfv: t_pfv.m ../../host/crash.c $(GFX) $(GFX_H)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_pfv.m ../../host/crash.c $(filter-out ../nvn/nvn_mtl.m ../nvn/nvn_entry.S ../nvn/nvn_thunks.S,$(GFX)) $(FW)
-run: t_nvn t_dirty_slots t_dirty_race t_builtin t_deswz_gpu t_pace t_refl t_hmap t_cover t_fuse_check t_present_crop t_reorder_chain t_defer_chain t_zskip t_xv t_ub t_mip_extent t_rt_range_shape t_rt_range_ro t_rt_range t_rt_depth_ro t_pso_skey t_pfv
+run: t_nvn t_dirty_slots t_dirty_race t_builtin t_deswz_gpu t_bcd_gpu t_pace t_refl t_hmap t_cover t_fuse_check t_present_crop t_reorder_chain t_defer_chain t_zskip t_xv t_ub t_mip_extent t_rt_range_shape t_rt_range_ro t_rt_range t_rt_depth_ro t_pso_skey t_pfv
 	./t_nvn
 	./t_dirty_slots
 	./t_dirty_race
 	./t_builtin
 	./t_deswz_gpu
+	./t_bcd_gpu
 	./t_pace
 	./t_refl
 	./t_hmap

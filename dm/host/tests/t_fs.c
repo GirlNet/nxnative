@@ -178,11 +178,11 @@ int main(void) {
     {   // Both direction ranges occur in game messages; aliases must not fall through to missing private-use glyphs.
         uint8_t primary[] = "\xEE\x82\xAB \xEE\x82\xAC \xEE\x82\xAD \xEE\x82\xAE";
         uint8_t aliases[] = "\xEE\x83\xAB \xEE\x83\xAC \xEE\x83\xAD \xEE\x83\xAE";
-        const uint8_t want[] = "\xEF\xBC\xB2 \xEF\xBC\xA4 \xEF\xBC\xB5 \xEF\xBC\xAC";   // full-width R D U L
+        const uint8_t want[] = "\xE2\x86\x92 \xE2\x86\x93 \xE2\x86\x91 \xE2\x86\x90";   // right, down, up, left arrows
         msbt_replace_button_icons(primary, sizeof primary);
         msbt_replace_button_icons(aliases, sizeof aliases);
-        CHECK(sizeof primary == sizeof want && !memcmp(primary, want, sizeof want), "MSBT primary directions keep byte offsets and readable order");
-        CHECK(sizeof aliases == sizeof want && !memcmp(aliases, want, sizeof want), "MSBT gameplay direction aliases keep byte offsets and readable order");
+        CHECK(sizeof primary == sizeof want && !memcmp(primary, want, sizeof want), "MSBT primary directions keep byte offsets and arrow order");
+        CHECK(sizeof aliases == sizeof want && !memcmp(aliases, want, sizeof want), "MSBT gameplay direction aliases keep byte offsets and arrow order");
     }
 
     // Language switch rewriting the settings file (settings_lang_apply): expected values computed by hand from the rule -- only when it "does not match the switch" are Language / VoiceLanguage changed to 0 (English) or 8 (Simplified Chinese); other keys and other languages are untouched
