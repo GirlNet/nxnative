@@ -19,6 +19,11 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+      - name: Test file system and message icons
+        run: |
+          make -C dm/host GAME=0100D9F01D474000 gen/0100D9F01D474000/game_profile.h
+          make -C dm/host/tests GAME=0100D9F01D474000 build/t_fs
+          dm/host/tests/build/t_fs
       - name: Build dmhost for every game profile
         run: |
           build() {

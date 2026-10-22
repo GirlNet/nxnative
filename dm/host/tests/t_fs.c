@@ -175,6 +175,16 @@ int main(void) {
         CHECK(!memcmp(msg, want, sizeof msg), "MSBT 按键图标原位替换为文字");
     }
 
+    {   // Both direction ranges occur in game messages; aliases must not fall through to missing private-use glyphs.
+        uint8_t primary[] = "\xEE\x82\xAB \xEE\x82\xAC \xEE\x82\xAD \xEE\x82\xAE";
+        uint8_t aliases[] = "\xEE\x83\xAB \xEE\x83\xAC \xEE\x83\xAD \xEE\x83\xAE";
+        const uint8_t want[] = "\xEF\xBC\xB2 \xEF\xBC\xA4 \xEF\xBC\xB5 \xEF\xBC\xAC";   // full-width R D U L
+        msbt_replace_button_icons(primary, sizeof primary);
+        msbt_replace_button_icons(aliases, sizeof aliases);
+        CHECK(sizeof primary == sizeof want && !memcmp(primary, want, sizeof want), "MSBT primary directions keep byte offsets and readable order");
+        CHECK(sizeof aliases == sizeof want && !memcmp(aliases, want, sizeof want), "MSBT gameplay direction aliases keep byte offsets and readable order");
+    }
+
     // Language switch rewriting the settings file (settings_lang_apply): expected values computed by hand from the rule -- only when it "does not match the switch" are Language / VoiceLanguage changed to 0 (English) or 8 (Simplified Chinese); other keys and other languages are untouched
     { extern int g_t_lang; char sd[1200], sf[1300], gotj[512]; snprintf(sd, sizeof sd, "%s/langt", root); mkdir(sd, 0755); snprintf(sf, sizeof sf, "%s/Settings", sd); mkdir(sf, 0755); snprintf(sf, sizeof sf, "%s/Settings/Settings.json", sd);
       #define LANGCASE(dm, in, want, what) do { g_t_lang = (dm); put(sf, (in)); settings_lang_apply(sd); FILE *lf = fopen(sf, "rb"); size_t ln_ = lf ? fread(gotj, 1, sizeof gotj - 1, lf) : 0; if (lf) fclose(lf); gotj[ln_] = 0; CHECK(!strcmp(gotj, (want)), "语言开关：%s", (what)); } while (0)
