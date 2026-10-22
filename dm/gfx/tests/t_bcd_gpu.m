@@ -109,16 +109,19 @@ int main(void) {
     @autoreleasepool {
         id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
         if (!dev) { fprintf(stderr, "No Metal device\n"); return 1; }
+        int supports_metal4 = [dev supportsFamily:MTLGPUFamilyMetal4];
+        printf("GPU: %s; Metal 4 support: %s\n", dev.name.UTF8String, supports_metal4 ? "yes" : "no");
         NSError *error = nil;
         id<MTLLibrary> lib = [dev newLibraryWithSource:@(k_bcd_msl) options:nil error:&error];
         id<MTLComputePipelineState> ps = lib ? [dev newComputePipelineStateWithFunction:[lib newFunctionWithName:@"bcd"] error:&error] : nil;
         if (!ps) { fprintf(stderr, "%s\n", error.description.UTF8String); return 1; }
         unsigned cases[][2] = {{4, 4}, {7, 5}, {33, 17}, {1024, 1024}, {7232, 832}};
         int failed = 0;
-        for (int metal4 = 0; metal4 <= 1; ++metal4) for (int srgb = 0; srgb <= 1; ++srgb)
+        for (int metal4 = 0; metal4 <= supports_metal4; ++metal4) for (int srgb = 0; srgb <= 1; ++srgb)
             for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; ++i) @autoreleasepool {
                 failed |= run_case(dev, ps, cases[i][0], cases[i][1], srgb, metal4);
             }
+        if (!supports_metal4) printf("Metal 4 argument-table tests unavailable on this GPU; Metal 3 decoder results above remain required.\n");
         return failed;
     }
 }

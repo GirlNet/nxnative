@@ -38,6 +38,14 @@ jobs:
           command -v dotnet >/dev/null || brew install --cask dotnet-sdk
           # the runner's python3 is Homebrew's (PEP 668 externally-managed): --user --break-system-packages is the sanctioned way in
           python3 -m pip install --user --break-system-packages lz4 capstone fonttools
+      - name: Test BC7 GPU uploads
+        run: |
+          python3 dm/gfx/tex/make_bc7_msl.py --check
+          make -C dm/gfx/tests GAME="$GAME" t_bcd_gpu t_deswz_gpu
+          MTL_DEBUG_LAYER=1 dm/gfx/tests/t_bcd_gpu
+          dm/gfx/tests/t_deswz_gpu
+        env:
+          GAME: ${{ inputs.game }}
       - name: Build the IPA
         run: |
           build() {
